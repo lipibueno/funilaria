@@ -152,6 +152,48 @@ nav button[aria-current="true"] .i{transform:translateY(-1px)}
 .aviso{background:#FFF6D6;border:1px solid var(--tape);border-radius:var(--r);padding:12px;font-size:13px;margin-bottom:14px}
 @media (prefers-reduced-motion:no-preference){.toast{animation:sobe .18s ease-out}}
 @keyframes sobe{from{transform:translateY(8px);opacity:0}}
+
+/* v2: filtros do painel */
+.chips{display:flex;gap:8px;overflow-x:auto;padding:0 16px 12px;-webkit-overflow-scrolling:touch}
+.chip{flex:none;padding:8px 14px;border-radius:999px;background:var(--paper);border:1px solid var(--line);font-size:13px;font-weight:600;white-space:nowrap}
+.chip[aria-pressed="true"]{background:var(--ink);color:#fff;border-color:var(--ink)}
+.chip span{opacity:.6;margin-left:4px}
+.lista{padding:0 16px}
+.pill{display:inline-block;font-size:11px;font-weight:700;padding:3px 8px;border-radius:999px;background:var(--primer);color:var(--ink);white-space:nowrap}
+.pill.s-Aprovado{background:#DCE6F5}
+.pill.s-Em{background:#FCEBA6}
+.pill.s-Pronto{background:#D9DEE4}
+.pill.s-Aguardando{background:#F7D3CF;color:#8E2219}
+.pill.s-Finalizado{background:#CFEBDD;color:#145C3B}
+.card .linha1{display:flex;justify-content:space-between;align-items:center;gap:8px}
+.card .pago{font-size:12px;font-weight:700;color:var(--ok)}
+
+/* v2: etapas */
+.etapas{display:grid;grid-template-columns:repeat(5,1fr);gap:4px;margin:4px 0 6px}
+.etapa{height:6px;border-radius:3px;background:var(--line)}
+.etapa.feito{background:var(--ink)}
+.etapa.atual{background:var(--tape)}
+.etapa.espera{background:var(--debt)}
+.etapas-rot{display:grid;grid-template-columns:repeat(5,1fr);gap:4px;font-size:10.5px;color:var(--steel);font-weight:600;margin-bottom:12px}
+.etapas-rot .atual{color:var(--ink)}
+.proximo{background:var(--paper);border:1px solid var(--line);border-radius:var(--r);padding:12px;margin-bottom:6px}
+.proximo p{margin:0 0 2px;font-size:13px;color:var(--steel)}
+.proximo .btn{margin-top:8px}
+.voltar-etapa{display:block;margin:8px auto 0;font-size:13px;color:var(--steel);text-decoration:underline;padding:6px}
+
+/* v2: serviço travado na lista */
+.item .top input::placeholder{color:#9AA3AE;font-weight:500}
+.sugbox .novo{color:var(--ink);font-weight:700;background:#FFF6D6}
+.fotogrande{display:block;width:100%;height:190px;object-fit:cover;border-radius:var(--r);border:1px solid var(--line);margin-top:10px;background:var(--primer)}
+
+/* v2: pagamento */
+.pgbox{background:var(--paper);border:1px solid var(--line);border-radius:var(--r);padding:12px;margin-top:8px}
+.pglin{display:flex;justify-content:space-between;align-items:center;gap:8px;padding:8px 0;border-bottom:1px solid var(--line);font-size:14px}
+.pglin:last-of-type{border-bottom:none}
+.pglin small{color:var(--steel)}
+.formas{display:flex;flex-wrap:wrap;gap:8px;margin-top:8px}
+.quitado{display:flex;align-items:center;gap:10px;background:#E4F5EC;border:1px solid #9FD8BA;color:#145C3B;border-radius:var(--r);padding:12px;font-weight:700;margin-top:8px}
+.secao{font-size:15px;font-weight:800;margin:22px 0 4px}
 </style>
 </head>
 <body>
@@ -178,16 +220,19 @@ const ROTULO = {
   'Orcamento':'Orçamento','Aprovado':'Aprovado','Em execucao':'Em execução',
   'Pronto p/ entrega':'Pronto p/ entrega','Aguardando pagamento':'Aguardando pagamento','Finalizado':'Finalizado'
 };
-const PROXIMO = {
-  'Orcamento':'Aprovado','Aprovado':'Em execucao','Em execucao':'Pronto p/ entrega',
-  'Pronto p/ entrega':'Finalizado','Aguardando pagamento':'Finalizado'
-};
-const FORMAS = ['Dinheiro','Pix','Cartao','Transferencia'];
+const ETAPAS = [['Orcamento','Orçamento'],['Aprovado','Aprovado'],['Em execucao','Execução'],['Pronto p/ entrega','Pronto'],['Finalizado','Entregue']];
+const ANTERIOR = {'Aprovado':'Orcamento','Em execucao':'Aprovado','Pronto p/ entrega':'Em execucao','Aguardando pagamento':'Pronto p/ entrega','Finalizado':'Pronto p/ entrega'};
+const FORMAS = ['Pix','Dinheiro','Cartao','Transferencia'];
+const FORMA_ROT = {Pix:'Pix',Dinheiro:'Dinheiro',Cartao:'Cartão',Transferencia:'Transferência'};
 
 let API = localStorage.getItem('api_url') || '';
 let dados = { config:{}, clientes:[], servicos:[], orcamentos:[], itens:[], pagamentos:[] };
 let rascunho = null;
 let telaAtual = 'painel';
+let filtro = 'Todos';
+let pagAberto = false;
+let pagForma = 'Pix';
+let ocupado = false;
 
 const $ = s => document.querySelector(s);
 const tela = $('#tela');
@@ -203,6 +248,28 @@ const hoje = () => new Date().toISOString().slice(0,10);
 const dataBR = d => { const p=String(d||'').slice(0,10).split('-'); return p.length===3 ? `${p[2]}/${p[1]}/${p[0]}` : (d||''); };
 const esc = s => String(s==null?'':s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
 const id = p => p + Date.now().toString(36).toUpperCase() + Math.floor(Math.random()*1000).toString(36).toUpperCase();
+const semAcento = s => String(s||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase();
+const pillClasse = s => 's-' + String(s||'').split(' ')[0];
+
+// Links do Drive viram miniatura que o navegador consegue exibir
+function driveId(url){
+  const m = String(url||'').match(/[?&]id=([\w-]+)/) || String(url||'').match(/\/d\/([\w-]+)/);
+  return m ? m[1] : '';
+}
+function fotoSrc(url){
+  if (!url || String(url).startsWith('data:')) return url;
+  const i = driveId(url);
+  return i ? `https://drive.google.com/thumbnail?id=${i}&sz=w1000` : url;
+}
+function fotoAbrir(url){
+  if (!url || String(url).startsWith('data:')) return;
+  const i = driveId(url);
+  window.open(i ? `https://drive.google.com/file/d/${i}/view` : url, '_blank');
+}
+function fotoErro(img){
+  const i = driveId(img.dataset.url);
+  if (i && !img.dataset.tentou){ img.dataset.tentou = 1; img.src = `https://lh3.googleusercontent.com/d/${i}=w1000`; }
+}
 
 function aviso(msg, erro){
   document.querySelectorAll('.toast').forEach(t=>t.remove());
@@ -210,7 +277,7 @@ function aviso(msg, erro){
   t.className = 'toast' + (erro ? ' err' : '');
   t.textContent = msg;
   document.body.appendChild(t);
-  setTimeout(()=>t.remove(), erro ? 5000 : 2600);
+  setTimeout(()=>t.remove(), erro ? 5000 : 2800);
 }
 
 async function chamar(action, corpo){
@@ -235,8 +302,7 @@ async function sincronizar(silencioso){
   try{
     dados = await chamar('carregar');
     salvarCache();
-    if (!silencioso) aviso('Dados atualizados');
-    render();
+    if (!silencioso){ aviso('Dados atualizados'); render(); }
   }catch(e){
     if (!silencioso) aviso(e.message, true);
   }
@@ -245,14 +311,16 @@ async function sincronizar(silencioso){
 /* ===================== navegação ===================== */
 function ir(t, arg){
   telaAtual = t;
+  pagAberto = false;
   document.querySelectorAll('nav button').forEach(b=>b.setAttribute('aria-current', b.dataset.ir===t ? 'true':'false'));
   $('#btVoltar').classList.toggle('hide', t==='painel');
   if (t==='novo'){ rascunho = novoRascunho(); telaAtual='editor'; }
   if (t==='editor' && arg) rascunho = arg;
   render();
+  window.scrollTo(0,0);
 }
 $('#btVoltar').onclick = ()=> ir('painel');
-$('#btSync').onclick = ()=> sincronizar();
+$('#btSync').onclick = async ()=>{ await sincronizar(); };
 document.querySelectorAll('nav button').forEach(b=> b.onclick = ()=> ir(b.dataset.ir));
 
 function cabecalho(t, s){ $('#titulo').childNodes[0].nodeValue = t; $('#subtitulo').textContent = s; }
@@ -280,27 +348,35 @@ function telaPainel(){
     return;
   }
 
-  let h = '<div class="board">';
+  const conta = s => ativos.filter(o=>o.Status===s).length;
+  if (filtro!=='Todos' && !conta(filtro)) filtro = 'Todos';
+  let h = '<div class="chips">';
+  h += `<button class="chip" aria-pressed="${filtro==='Todos'}" onclick="filtrar('Todos')">Todos<span>${ativos.length}</span></button>`;
   STATUS.forEach(s=>{
-    const lista = ativos.filter(o=>o.Status===s);
-    if (!lista.length) return;
-    h += `<section class="col" data-s="${esc(s)}">
-      <div class="colhead"><b>${ROTULO[s]}</b><span>${lista.length}</span><i class="bar"></i></div>`;
-    lista.forEach(o=>{
-      const dev = num(o.Saldo) > 0;
-      h += `<button class="card" onclick="abrir('${o.ID}')">
-        <div class="placa">${esc(o.Placa||'sem placa')}</div>
-        <div class="cli">${esc(o.ClienteNome||'')}${o.Modelo?' · '+esc(o.Modelo):''}</div>
-        <div class="rod">
-          <div><div class="tot">${moeda(o.Total)}</div>
-          ${dev?`<div class="dev">falta ${moeda(o.Saldo)}</div>`:''}</div>
-          <div class="num">nº ${esc(o.Numero)} · ${dataBR(o.Data)}</div>
-        </div></button>`;
-    });
-    h += '</section>';
+    const n = conta(s); if (!n) return;
+    h += `<button class="chip" aria-pressed="${filtro===s}" onclick="filtrar('${s}')">${ROTULO[s]}<span>${n}</span></button>`;
+  });
+  h += '</div><div class="lista">';
+
+  const lista = (filtro==='Todos' ? ativos : ativos.filter(o=>o.Status===filtro))
+    .slice().sort((a,b)=> String(b.AtualizadoEm||'').localeCompare(String(a.AtualizadoEm||'')));
+
+  lista.forEach(o=>{
+    const saldo = num(o.Saldo), total = num(o.Total);
+    const fin = saldo<=0 && total>0 ? `<div class="pago">Pago</div>`
+             : saldo>0 && num(o.Pago)>0 ? `<div class="dev">falta ${moeda(saldo)}</div>` : '';
+    h += `<button class="card" onclick="abrir('${o.ID}')">
+      <div class="linha1"><div class="placa">${esc(o.Placa||'sem placa')}</div>
+        <span class="pill ${pillClasse(o.Status)}">${ROTULO[o.Status]||o.Status}</span></div>
+      <div class="cli">${esc(o.ClienteNome||'')}${o.Modelo?' · '+esc(o.Modelo):''}</div>
+      <div class="rod">
+        <div><div class="tot">${moeda(total)}</div>${fin}</div>
+        <div class="num">nº ${esc(o.Numero)} · ${dataBR(o.Data)}</div>
+      </div></button>`;
   });
   tela.innerHTML = h + '</div>';
 }
+function filtrar(s){ filtro = s; telaPainel(); }
 
 function abrir(oid){
   const o = dados.orcamentos.find(x=>String(x.ID)===String(oid));
@@ -328,6 +404,37 @@ function totais(){
   return { total, pago, saldo: total - pago };
 }
 
+function blocoEtapas(o, t){
+  const espera = o.Status==='Aguardando pagamento';
+  const atual = espera ? 4 : ETAPAS.findIndex(e=>e[0]===o.Status);
+  let h = '<div class="etapas">';
+  ETAPAS.forEach((e,i)=>{
+    const cl = i<atual ? 'feito' : i===atual ? (espera ? 'espera' : (o.Status==='Finalizado' ? 'feito' : 'atual')) : '';
+    h += `<i class="etapa ${cl}"></i>`;
+  });
+  h += '</div><div class="etapas-rot">';
+  ETAPAS.forEach((e,i)=> h += `<span class="${i===atual?'atual':''}">${e[1]}</span>`);
+  h += '</div>';
+
+  let titulo = '', btn = '';
+  if (o.Status==='Orcamento'){ titulo='Aguardando o cliente aprovar'; btn=`<button class="btn" onclick="avancar('Aprovado')">Cliente aprovou</button>`; }
+  else if (o.Status==='Aprovado'){ titulo='Aprovado, serviço ainda não começou'; btn=`<button class="btn" onclick="avancar('Em execucao')">Iniciar serviço</button>`; }
+  else if (o.Status==='Em execucao'){ titulo='Carro em serviço'; btn=`<button class="btn" onclick="avancar('Pronto p/ entrega')">Serviço pronto</button>`; }
+  else if (o.Status==='Pronto p/ entrega'){
+    titulo = t.saldo>0 ? `Pronto. Ainda falta receber ${moeda(t.saldo)}` : 'Pronto e pago';
+    btn = t.saldo>0
+      ? `<button class="btn" onclick="avancar('Finalizado')">Entregar sem receber tudo</button>
+         <button class="btn tape" onclick="abrirPag()">Receber pagamento</button>`
+      : `<button class="btn" onclick="avancar('Finalizado')">Entregar e finalizar</button>`;
+  }
+  else if (espera){ titulo=`Carro entregue. Falta receber ${moeda(t.saldo)}`; btn=`<button class="btn tape" onclick="abrirPag()">Receber pagamento</button>`; }
+  else if (o.Status==='Finalizado'){ titulo='Serviço entregue e pago'; btn=`<button class="btn sec" onclick="arquivarOrc()">Arquivar (tirar do painel)</button>`; }
+
+  h += `<div class="proximo"><p>${titulo}</p>${btn}</div>`;
+  if (ANTERIOR[o.Status]) h += `<button class="voltar-etapa" onclick="voltarEtapa()">Voltar uma etapa</button>`;
+  return h;
+}
+
 function telaEditor(){
   const o = rascunho.orcamento;
   const t = totais();
@@ -335,20 +442,13 @@ function telaEditor(){
   cabecalho(novo ? 'Novo orçamento' : (o.Placa || 'Orçamento'), novo ? 'preencha e salve' : `nº ${o.Numero} · ${ROTULO[o.Status]||o.Status}`);
 
   let h = '<div class="wrap">';
+  if (!novo) h += blocoEtapas(o, t);
 
-  if (!novo){
-    const dev = t.saldo > 0;
-    h += `<div class="statusbar">
-      <i class="dot" style="background:${o.Status==='Finalizado'?'var(--ok)':dev&&o.Status==='Aguardando pagamento'?'var(--debt)':'var(--ink)'}"></i>
-      <b>${ROTULO[o.Status]||o.Status}</b>
-      <small>${dev?'falta '+moeda(t.saldo):'quitado'}</small></div>`;
-  }
-
-  h += `<label for="fCli">Cliente</label>
+  h += `<div class="secao">Cliente e veículo</div>
+  <label for="fCli">Cliente</label>
   <div class="sug"><input id="fCli" value="${esc(o.ClienteNome)}" placeholder="nome do cliente" autocomplete="off"></div>
   <label for="fTel">WhatsApp (com DDD)</label>
   <input id="fTel" value="${esc(o.Telefone)}" inputmode="tel" placeholder="69 99999-9999">
-
   <div class="grid2">
     <div><label for="fPlaca">Placa</label><input id="fPlaca" value="${esc(o.Placa)}" style="text-transform:uppercase" placeholder="ABC1D23"></div>
     <div><label for="fData">Data</label><input id="fData" type="date" value="${esc(String(o.Data||hoje()).slice(0,10))}"></div>
@@ -360,13 +460,13 @@ function telaEditor(){
     <div><label for="fCor">Cor</label><input id="fCor" value="${esc(o.Cor)}" placeholder="prata"></div>
   </div>
 
-  <label>Serviços</label>`;
+  <div class="secao">Serviços</div>`;
 
   rascunho.itens.forEach((it,ix)=>{
     h += `<div class="item">
       <div class="top sug">
-        <input value="${esc(it.Descricao)}" placeholder="digite p, porta, para-choque…"
-               oninput="sugerir(this,${ix})" onfocus="sugerir(this,${ix})" autocomplete="off">
+        <input value="${esc(it.Descricao)}" placeholder="toque e escolha da lista" data-ix="${ix}"
+               oninput="sugerir(this,${ix})" onfocus="sugerir(this,${ix})" onblur="conferir(this,${ix})" autocomplete="off">
         <button class="del" onclick="removerItem(${ix})" aria-label="Remover serviço">×</button>
       </div>
       <div class="lin">
@@ -374,51 +474,58 @@ function telaEditor(){
         <input value="${esc(it.Valor)}" inputmode="decimal" placeholder="0,00" aria-label="Valor" onchange="setItem(${ix},'Valor',this.value)">
         <b>${moeda(num(it.Qtd)*num(it.Valor))}</b>
       </div>
-      <div class="foto">
-        ${it.FotoURL?`<img src="${esc(it.FotoURL)}" alt="Foto do serviço">`:''}
-        <button class="fotobtn" onclick="tirarFoto(${ix})">${it.FotoURL?'Trocar foto':'📷 Tirar foto'}</button>
-      </div>
+      ${it.FotoURL?`<img class="fotogrande" src="${esc(fotoSrc(it.FotoURL))}" data-url="${esc(it.FotoURL)}"
+          referrerpolicy="no-referrer" onerror="fotoErro(this)" onclick="fotoAbrir(this.dataset.url)" alt="Foto do serviço">`:''}
+      <div class="foto"><button class="fotobtn" onclick="tirarFoto(${ix})">${it.FotoURL?'Trocar foto':'📷 Tirar foto'}</button></div>
     </div>`;
   });
-
   h += `<button class="btn sec" onclick="addItem()">Adicionar serviço</button>`;
 
   h += `<div class="tot-box">
     <div class="l"><span>Serviços</span><b>${moeda(t.total)}</b></div>
-    <div class="l"><span>Pago</span><b>${moeda(t.pago)}</b></div>
-    <div class="big"><span>Saldo</span><b class="${t.saldo>0?'saldo-dev':'saldo-ok'}">${moeda(t.saldo)}</b></div>
+    <div class="l"><span>Recebido</span><b>${moeda(t.pago)}</b></div>
+    <div class="big"><span>${t.saldo>0?'Falta receber':'Saldo'}</span><b class="${t.saldo>0?'saldo-dev':'saldo-ok'}">${moeda(t.saldo)}</b></div>
   </div>`;
 
-  h += `<label>Pagamentos</label>`;
-  if (!rascunho.pagamentos.length) h += `<div class="vazio">Nenhum pagamento lançado.</div>`;
-  rascunho.pagamentos.forEach((p,ix)=>{
-    h += `<div class="item"><div class="lin" style="grid-template-columns:1fr 100px auto;margin-top:0">
-      <select onchange="setPag(${ix},'Forma',this.value)">
-        ${FORMAS.map(f=>`<option ${p.Forma===f?'selected':''}>${f}</option>`).join('')}
-      </select>
-      <input value="${esc(p.Valor)}" inputmode="decimal" onchange="setPag(${ix},'Valor',this.value)" aria-label="Valor pago">
-      <button class="del" onclick="removerPag(${ix})" aria-label="Remover pagamento">×</button>
-    </div></div>`;
-  });
-  h += `<button class="btn sec" onclick="addPag()">Lançar pagamento${t.saldo>0?' de '+moeda(t.saldo):''}</button>`;
+  // pagamento
+  h += `<div class="secao" id="secPag">Pagamento</div>`;
+  if (novo){
+    h += `<div class="vazio">Salve o orçamento para poder receber pagamentos.</div>`;
+  } else {
+    if (rascunho.pagamentos.length){
+      h += '<div class="pgbox">';
+      rascunho.pagamentos.forEach((p,ix)=>{
+        h += `<div class="pglin"><div><b>${moeda(p.Valor)}</b> <small>${FORMA_ROT[p.Forma]||p.Forma} · ${dataBR(p.Data)}</small></div>
+          <button class="del" onclick="removerPag(${ix})" aria-label="Remover pagamento">×</button></div>`;
+      });
+      h += '</div>';
+    }
+    if (t.total>0 && t.saldo<=0){
+      h += `<div class="quitado">✓ Totalmente pago</div>`;
+    } else if (pagAberto){
+      h += `<div class="pgbox">
+        <label for="pgValor" style="margin-top:0">Valor recebido</label>
+        <input id="pgValor" inputmode="decimal" value="${esc(String(t.saldo.toFixed(2)).replace('.',','))}">
+        <label>Forma</label>
+        <div class="formas">${FORMAS.map(f=>`<button class="chip" aria-pressed="${pagForma===f}" onclick="escolherForma('${f}')">${FORMA_ROT[f]}</button>`).join('')}</div>
+        <button class="btn tape" onclick="confirmarPag()">Confirmar recebimento</button>
+        <button class="btn sec" onclick="pagAberto=false;lerCampos();telaEditor()">Cancelar</button>
+      </div>`;
+    } else if (t.total>0){
+      h += `<button class="btn tape" onclick="abrirPag()">Receber pagamento</button>`;
+    }
+  }
 
   h += `<label for="fObs">Observações</label>
   <textarea id="fObs" rows="2" placeholder="prazo, condições, garantia…">${esc(o.Obs)}</textarea>`;
 
-  h += `<button class="btn" onclick="salvar()">Salvar orçamento</button>`;
-
+  h += `<button class="btn" onclick="salvar()">${novo?'Salvar orçamento':'Salvar alterações'}</button>`;
   if (!novo){
     h += `<div class="acoes">
       <button class="btn tape" onclick="gerarPDF(true)">Enviar no WhatsApp</button>
       <button class="btn sec" onclick="gerarPDF(false)">Baixar PDF</button>
-    </div>`;
-    const prox = PROXIMO[o.Status];
-    if (prox){
-      const rotulo = prox==='Finalizado' && t.saldo>0 ? 'Concluir (vai para espera)' : 'Avançar para ' + ROTULO[prox].toLowerCase();
-      h += `<button class="btn" onclick="avancar('${prox}')">${rotulo}</button>`;
-    }
-    if (o.Status==='Finalizado') h += `<button class="btn sec" onclick="arquivarOrc()">Arquivar</button>`;
-    h += `<button class="btn ghost" onclick="excluir()">Excluir orçamento</button>`;
+    </div>
+    <button class="btn ghost" onclick="excluir()">Excluir orçamento</button>`;
   }
 
   tela.innerHTML = h + '</div>';
@@ -427,68 +534,101 @@ function telaEditor(){
 
 /* --- campos --- */
 function lerCampos(){
-  const g = i => { const el=$('#'+i); return el ? el.value : ''; };
-  Object.assign(rascunho.orcamento, {
-    ClienteNome:g('fCli'), Telefone:g('fTel'), Placa:g('fPlaca').toUpperCase(),
-    Data:g('fData'), Modelo:g('fModelo'), Ano:g('fAno'), Cor:g('fCor'), Obs:g('fObs')
-  });
+  const g = i => { const el=$('#'+i); return el ? el.value : undefined; };
+  const o = rascunho.orcamento;
+  const map = {ClienteNome:'fCli',Telefone:'fTel',Placa:'fPlaca',Data:'fData',Modelo:'fModelo',Ano:'fAno',Cor:'fCor',Obs:'fObs'};
+  for (const k in map){ const v = g(map[k]); if (v!==undefined) o[k] = k==='Placa' ? v.toUpperCase() : v; }
 }
 function setItem(ix,campo,v){ lerCampos(); rascunho.itens[ix][campo]=v; telaEditor(); }
-function addItem(){ lerCampos(); guardarDescricoes(); rascunho.itens.push({ID:id('I'),Descricao:'',Qtd:1,Valor:'',FotoURL:''}); telaEditor(); }
-function removerItem(ix){ lerCampos(); guardarDescricoes(); rascunho.itens.splice(ix,1); if(!rascunho.itens.length) addItem(); else telaEditor(); }
-function setPag(ix,campo,v){ lerCampos(); guardarDescricoes(); rascunho.pagamentos[ix][campo]=v; telaEditor(); }
-function removerPag(ix){ lerCampos(); guardarDescricoes(); rascunho.pagamentos.splice(ix,1); telaEditor(); }
-function addPag(){
-  lerCampos(); guardarDescricoes();
-  const t = totais();
-  rascunho.pagamentos.push({ID:id('P'), Data:hoje(), Valor: t.saldo>0 ? t.saldo : '', Forma:'Pix', Obs:''});
-  telaEditor();
-}
-// pega o que foi digitado nos campos de descrição antes de redesenhar a tela
-function guardarDescricoes(){
-  document.querySelectorAll('.item .top input').forEach((el,ix)=>{
-    if (rascunho.itens[ix]) rascunho.itens[ix].Descricao = el.value;
-  });
+function addItem(){ lerCampos(); rascunho.itens.push({ID:id('I'),Descricao:'',Qtd:1,Valor:'',FotoURL:''}); telaEditor();
+  const ins = document.querySelectorAll('.item .top input'); const ult = ins[ins.length-1]; if (ult) ult.focus(); }
+function removerItem(ix){ lerCampos(); rascunho.itens.splice(ix,1); if(!rascunho.itens.length) addItem(); else telaEditor(); }
+
+/* --- serviço só da lista --- */
+function filtrarServicos(termo){
+  const t = semAcento(termo.trim());
+  let l = dados.servicos.slice();
+  if (t){
+    const comeca = l.filter(s=> semAcento(s.Descricao).startsWith(t));
+    const contem = l.filter(s=> !semAcento(s.Descricao).startsWith(t) && semAcento(s.Descricao).includes(t));
+    l = comeca.concat(contem);
+  } else l.sort((a,b)=> String(a.Descricao).localeCompare(String(b.Descricao)));
+  return l.slice(0,10);
 }
 
-/* --- autocomplete de serviços --- */
 function sugerir(input, ix){
-  guardarDescricoes();
   fecharSug();
-  const termo = input.value.trim().toLowerCase();
-  let lista = dados.servicos;
-  if (termo) lista = lista.filter(s => String(s.Descricao).toLowerCase().includes(termo));
-  lista = lista.slice(0,8);
-  if (!lista.length) return;
+  const termo = input.value;
+  const lista = filtrarServicos(termo);
+  const exato = dados.servicos.some(s=> semAcento(s.Descricao)===semAcento(termo.trim()));
   const box = document.createElement('div');
   box.className = 'sugbox';
-  box.innerHTML = lista.map(s=>
-    `<button type="button" data-d="${esc(s.Descricao)}" data-v="${esc(s.ValorPadrao)}">
-      <b>${esc(s.Descricao)}</b><span>${moeda(s.ValorPadrao)}</span></button>`).join('');
-  box.querySelectorAll('button').forEach(b=> b.onmousedown = ev=>{
-    ev.preventDefault();
-    rascunho.itens[ix].Descricao = b.dataset.d;
-    if (!num(rascunho.itens[ix].Valor)) rascunho.itens[ix].Valor = b.dataset.v;
-    lerCampos(); telaEditor();
+  let h = lista.map((s,k)=>
+    `<button type="button" data-k="${k}"><b>${esc(s.Descricao)}</b><span>${moeda(s.ValorPadrao)}</span></button>`).join('');
+  if (termo.trim() && !exato) h += `<button type="button" class="novo" data-novo="1">＋ Cadastrar “${esc(termo.trim())}” na lista</button>`;
+  if (!h) return;
+  box.innerHTML = h;
+  box.querySelectorAll('button').forEach(b=>{
+    b.addEventListener('pointerdown', ev=> ev.preventDefault());
+    b.addEventListener('mousedown', ev=> ev.preventDefault());
+    b.addEventListener('click', ()=>{
+      if (b.dataset.novo) cadastrarRapido(ix, termo.trim());
+      else escolherServico(ix, lista[+b.dataset.k]);
+    });
   });
   input.closest('.sug').appendChild(box);
 }
 function fecharSug(){ document.querySelectorAll('.sugbox').forEach(b=>b.remove()); }
 document.addEventListener('click', e=>{ if (!e.target.closest('.sug')) fecharSug(); });
 
+function escolherServico(ix, s){
+  lerCampos();
+  rascunho.itens[ix].Descricao = s.Descricao;
+  rascunho.itens[ix].Valor = s.ValorPadrao;
+  fecharSug(); telaEditor();
+}
+
+// ao sair do campo, só fica o que foi escolhido da lista
+function conferir(input, ix){
+  setTimeout(()=>{
+    if (!document.body.contains(input) || document.activeElement===input) return;
+    const certo = rascunho.itens[ix] ? (rascunho.itens[ix].Descricao||'') : '';
+    if (input.value !== certo){
+      if (input.value.trim()) aviso('Escolha um serviço da lista ou toque em “Cadastrar” para criar um novo.', true);
+      input.value = certo;
+    }
+    fecharSug();
+  }, 250);
+}
+
+async function cadastrarRapido(ix, desc){
+  fecharSug();
+  const v = prompt(`Valor padrão de "${desc}":`, '');
+  if (v===null) return;
+  const cat = prompt('Categoria (Funilaria, Pintura, Peça, Acabamento…):', 'Funilaria');
+  if (cat===null) return;
+  try{
+    const s = await chamar('salvarServico', { servico:{ID:'', Descricao:desc, Categoria:cat, ValorPadrao:num(v)} });
+    dados.servicos.push(s); salvarCache();
+    escolherServico(ix, s);
+    aviso('Serviço cadastrado na lista');
+  }catch(e){ aviso(e.message, true); }
+}
+
 function ligarCliente(){
   const el = $('#fCli'); if (!el) return;
   el.oninput = el.onfocus = ()=>{
     fecharSug();
-    const termo = el.value.trim().toLowerCase();
-    const lista = dados.clientes.filter(c=> !termo || String(c.Nome).toLowerCase().includes(termo)).slice(0,6);
+    const termo = semAcento(el.value.trim());
+    const lista = dados.clientes.filter(c=> !termo || semAcento(c.Nome).includes(termo)).slice(0,6);
     if (!lista.length) return;
     const box = document.createElement('div');
     box.className='sugbox';
-    box.innerHTML = lista.map(c=>`<button type="button" data-n="${esc(c.Nome)}" data-t="${esc(c.Telefone)}"><b>${esc(c.Nome)}</b><span>${esc(c.Telefone)}</span></button>`).join('');
-    box.querySelectorAll('button').forEach(b=> b.onmousedown = ev=>{
-      ev.preventDefault();
-      el.value = b.dataset.n; $('#fTel').value = b.dataset.t; fecharSug();
+    box.innerHTML = lista.map((c,k)=>`<button type="button" data-k="${k}"><b>${esc(c.Nome)}</b><span>${esc(c.Telefone)}</span></button>`).join('');
+    box.querySelectorAll('button').forEach(b=>{
+      b.addEventListener('pointerdown', ev=> ev.preventDefault());
+      b.addEventListener('mousedown', ev=> ev.preventDefault());
+      b.addEventListener('click', ()=>{ const c = lista[+b.dataset.k]; el.value=c.Nome; $('#fTel').value=c.Telefone; fecharSug(); });
     });
     el.closest('.sug').appendChild(box);
   };
@@ -496,23 +636,21 @@ function ligarCliente(){
 
 /* --- foto --- */
 function tirarFoto(ix){
-  lerCampos(); guardarDescricoes();
+  lerCampos();
   const inp = document.createElement('input');
   inp.type='file'; inp.accept='image/*'; inp.capture='environment';
   inp.onchange = async ()=>{
     const f = inp.files[0]; if (!f) return;
-    aviso('Preparando a foto…');
     try{
       const b64 = await comprimir(f);
       rascunho.itens[ix].FotoURL = 'data:image/jpeg;base64,'+b64;
       rascunho.itens[ix]._novaFoto = b64;
       telaEditor();
-      aviso('Foto anexada. Salve para enviar ao Drive.');
+      aviso('Foto anexada. Ela vai para o Drive quando você salvar.');
     }catch(e){ aviso('Não consegui ler a foto', true); }
   };
   inp.click();
 }
-
 function comprimir(file, max){
   max = max || 1280;
   return new Promise((ok,falha)=>{
@@ -529,43 +667,89 @@ function comprimir(file, max){
   });
 }
 
-/* --- salvar --- */
-async function salvar(){
-  lerCampos(); guardarDescricoes();
+/* --- gravar tudo na planilha --- */
+async function salvarTudo(msg){
+  if (ocupado) return false;
+  lerCampos();
   const o = rascunho.orcamento;
-  if (!o.ClienteNome.trim() && !o.Placa.trim()){ aviso('Informe ao menos o cliente ou a placa', true); return; }
-  rascunho.itens = rascunho.itens.filter(i => String(i.Descricao).trim() || num(i.Valor));
-  if (!rascunho.itens.length){ aviso('Adicione ao menos um serviço', true); return; }
+  if (!String(o.ClienteNome).trim() && !String(o.Placa).trim()){ aviso('Informe ao menos o cliente ou a placa', true); return false; }
+  const itens = rascunho.itens.filter(i => String(i.Descricao).trim());
+  if (!itens.length){ aviso('Escolha ao menos um serviço da lista', true); return false; }
 
+  ocupado = true;
   aviso('Salvando…');
   try{
-    for (const it of rascunho.itens){
+    for (const it of itens){
       if (it._novaFoto){
+        aviso('Enviando foto…');
         const r = await chamar('enviarFoto', { base64: it._novaFoto, mime:'image/jpeg', nome:'orc-'+(o.Numero||'novo')+'-'+Date.now()+'.jpg' });
         it.FotoURL = r.url; delete it._novaFoto;
       }
     }
     const r = await chamar('salvarOrcamento', {
       orcamento:o,
-      itens: rascunho.itens.map(i=>({ID:i.ID,Descricao:i.Descricao,Qtd:num(i.Qtd)||1,Valor:num(i.Valor),FotoURL:i.FotoURL||''})),
+      itens: itens.map(i=>({ID:i.ID,Descricao:i.Descricao,Qtd:num(i.Qtd)||1,Valor:num(i.Valor),FotoURL:i.FotoURL||''})),
       pagamentos: rascunho.pagamentos.map(p=>({ID:p.ID,Data:p.Data||hoje(),Valor:num(p.Valor),Forma:p.Forma||'Pix',Obs:p.Obs||''}))
     });
     rascunho.orcamento = r.orcamento;
-    await sincronizar(true);
-    aviso('Orçamento salvo');
-    telaEditor();
-  }catch(e){ aviso(e.message, true); }
+    rascunho.itens = r.itens;
+    rascunho.pagamentos = r.pagamentos;
+    sincronizar(true);
+    if (msg) aviso(msg);
+    return true;
+  }catch(e){ aviso(e.message, true); return false; }
+  finally{ ocupado = false; }
 }
 
+async function salvar(){ if (await salvarTudo('Orçamento salvo')) telaEditor(); }
+
 async function avancar(prox){
-  if (!rascunho.orcamento.ID) return;
+  if (!(await salvarTudo())) return;
   try{
     const o = await chamar('mudarStatus', { id: rascunho.orcamento.ID, status: prox });
     rascunho.orcamento = o;
-    await sincronizar(true);
-    aviso('Agora está em: ' + (ROTULO[o.Status]||o.Status));
-    telaEditor();
+    sincronizar(true);
+    aviso(o.Status==='Aguardando pagamento' ? 'Entregue. Ficou aguardando pagamento.' : 'Agora está em: ' + ROTULO[o.Status]);
+    telaEditor(); window.scrollTo(0,0);
   }catch(e){ aviso(e.message, true); }
+}
+
+async function voltarEtapa(){
+  const ant = ANTERIOR[rascunho.orcamento.Status];
+  if (!ant || !confirm('Voltar para "' + ROTULO[ant] + '"?')) return;
+  try{
+    const o = await chamar('mudarStatus', { id: rascunho.orcamento.ID, status: ant });
+    rascunho.orcamento = o; sincronizar(true); telaEditor();
+  }catch(e){ aviso(e.message, true); }
+}
+
+/* --- pagamento: um toque para receber --- */
+function abrirPag(){
+  lerCampos(); pagAberto = true; telaEditor();
+  const s = $('#secPag'); if (s) s.scrollIntoView({behavior:'smooth', block:'start'});
+}
+function escolherForma(f){ const v = $('#pgValor').value; pagForma = f; lerCampos(); telaEditor(); $('#pgValor').value = v; }
+
+async function confirmarPag(){
+  const valor = num($('#pgValor').value);
+  if (valor<=0){ aviso('Informe o valor recebido', true); return; }
+  lerCampos();
+  rascunho.pagamentos.push({ID:id('P'), Data:hoje(), Valor:valor, Forma:pagForma, Obs:''});
+  pagAberto = false;
+  const ok = await salvarTudo();
+  if (!ok){ rascunho.pagamentos.pop(); telaEditor(); return; }
+  const saldo = num(rascunho.orcamento.Saldo);
+  aviso(saldo<=0
+    ? (rascunho.orcamento.Status==='Finalizado' ? 'Pagamento recebido. Orçamento finalizado.' : 'Pagamento recebido. Totalmente pago.')
+    : 'Pagamento recebido. Falta ' + moeda(saldo));
+  telaEditor();
+}
+
+async function removerPag(ix){
+  const p = rascunho.pagamentos[ix];
+  if (!confirm(`Remover o pagamento de ${moeda(p.Valor)}?`)) return;
+  rascunho.pagamentos.splice(ix,1);
+  if (await salvarTudo('Pagamento removido')) telaEditor();
 }
 
 async function arquivarOrc(){
@@ -589,6 +773,7 @@ function montarPDF(){
   const d = new jsPDF({unit:'mm', format:'a4'});
   const c = dados.config || {};
   const o = rascunho.orcamento;
+  const itens = rascunho.itens.filter(i=>String(i.Descricao).trim());
   const t = totais();
   const M = 16;
   let y = 20;
@@ -597,10 +782,7 @@ function montarPDF(){
   d.text(String(c.oficina_nome||'Orçamento de serviços'), M, y);
   y += 6;
   d.setFont('helvetica','normal'); d.setFontSize(9); d.setTextColor(110);
-  [c.oficina_endereco, c.oficina_telefone, c.oficina_doc].filter(Boolean).forEach(l=>{
-    d.text(String(l), M, y); y += 4.2;
-  });
-
+  [c.oficina_endereco, c.oficina_telefone, c.oficina_doc].filter(Boolean).forEach(l=>{ d.text(String(l), M, y); y += 4.2; });
   d.setDrawColor(210); d.line(M, y+2, 194, y+2); y += 10;
 
   d.setTextColor(20); d.setFont('helvetica','bold'); d.setFontSize(12);
@@ -608,14 +790,12 @@ function montarPDF(){
   d.setFont('helvetica','normal'); d.setFontSize(9); d.setTextColor(110);
   d.text(dataBR(o.Data), 194, y, {align:'right'});
   y += 8;
-
   d.setTextColor(20); d.setFontSize(10);
   d.text('Cliente: ' + (o.ClienteNome||'—'), M, y); y += 5;
   const veic = [o.Modelo, o.Placa, o.Ano, o.Cor].filter(Boolean).join(' · ');
   if (veic){ d.text('Veículo: ' + veic, M, y); y += 5; }
   y += 4;
 
-  // cabeçalho da tabela
   d.setFillColor(20,23,26); d.rect(M, y-5, 178, 8, 'F');
   d.setTextColor(255); d.setFont('helvetica','bold'); d.setFontSize(9);
   d.text('Serviço', M+3, y); d.text('Qtd', 138, y, {align:'right'});
@@ -623,15 +803,13 @@ function montarPDF(){
   y += 9;
 
   d.setTextColor(20); d.setFont('helvetica','normal'); d.setFontSize(10);
-  rascunho.itens.forEach(it=>{
+  itens.forEach(it=>{
     if (y > 258){ d.addPage(); y = 24; }
     const linhas = d.splitTextToSize(String(it.Descricao||''), 112);
     d.text(linhas, M+3, y);
     d.text(String(num(it.Qtd)||1), 138, y, {align:'right'});
     d.text(moeda(it.Valor), 162, y, {align:'right'});
-    d.setFont('helvetica','bold');
-    d.text(moeda(num(it.Qtd)*num(it.Valor)), 191, y, {align:'right'});
-    d.setFont('helvetica','normal');
+    d.setFont('helvetica','bold'); d.text(moeda(num(it.Qtd)*num(it.Valor)), 191, y, {align:'right'}); d.setFont('helvetica','normal');
     y += 6 + (linhas.length-1)*5;
     d.setDrawColor(232); d.line(M, y-3, 194, y-3);
   });
@@ -639,36 +817,29 @@ function montarPDF(){
   y += 4;
   if (y > 240){ d.addPage(); y = 24; }
   const linhaTot = (rot, val, forte)=>{
-    d.setFont('helvetica', forte?'bold':'normal');
-    d.setFontSize(forte?13:10);
-    d.text(rot, 150, y, {align:'right'});
-    d.text(moeda(val), 191, y, {align:'right'});
+    d.setFont('helvetica', forte?'bold':'normal'); d.setFontSize(forte?13:10);
+    d.text(rot, 150, y, {align:'right'}); d.text(moeda(val), 191, y, {align:'right'});
     y += forte ? 8 : 5.5;
   };
   linhaTot('Serviços', t.total, false);
-  if (t.pago > 0){ linhaTot('Pago', t.pago, false); linhaTot('Saldo', t.saldo, true); }
+  if (t.pago > 0){ linhaTot('Recebido', t.pago, false); linhaTot(t.saldo>0?'Falta receber':'Saldo', t.saldo, true); }
   else linhaTot('Total', t.total, true);
 
   if (o.Obs){
     y += 4; d.setFont('helvetica','normal'); d.setFontSize(9); d.setTextColor(90);
     d.text(d.splitTextToSize(String(o.Obs), 178), M, y);
-    y += 6;
   }
   const dias = parseInt(c.validade_dias,10);
-  if (dias){
-    d.setFontSize(9); d.setTextColor(120);
-    d.text('Validade deste orçamento: ' + dias + ' dias.', M, 282);
-  }
+  if (dias){ d.setFontSize(9); d.setTextColor(120); d.text('Validade deste orçamento: ' + dias + ' dias.', M, 282); }
   return d;
 }
 
 async function gerarPDF(compartilhar){
-  lerCampos(); guardarDescricoes();
+  lerCampos();
   if (!window.jspdf){ aviso('Abra o app conectado à internet uma vez para preparar o PDF', true); return; }
   const o = rascunho.orcamento;
-  const nome = `Orcamento-${o.Numero||'novo'}-${(o.Placa||o.ClienteNome||'').replace(/\W+/g,'')}.pdf`;
+  const nome = `Orcamento-${o.Numero||'novo'}-${String(o.Placa||o.ClienteNome||'').replace(/\W+/g,'')}.pdf`;
   const doc = montarPDF();
-
   if (!compartilhar){ doc.save(nome); return; }
 
   const blob = doc.output('blob');
@@ -679,7 +850,6 @@ async function gerarPDF(compartilhar){
     try{ await navigator.share({ files:[arq], title:nome, text:texto }); return; }
     catch(e){ if (e.name==='AbortError') return; }
   }
-  // sem compartilhamento de arquivo: baixa o PDF e abre a conversa
   doc.save(nome);
   const tel = String(o.Telefone||'').replace(/\D/g,'');
   const numero = tel ? (tel.length<=11 ? '55'+tel : tel) : '';
@@ -689,31 +859,27 @@ async function gerarPDF(compartilhar){
 
 /* ===================== serviços ===================== */
 function telaServicos(){
-  cabecalho('Serviços','o que aparece no autocompletar');
-  let h = `<div class="wrap">
-    <button class="btn" onclick="editarServico()">Adicionar serviço</button>`;
+  cabecalho('Serviços','a lista que aparece nos orçamentos');
+  let h = `<div class="wrap"><button class="btn" onclick="editarServico()">Adicionar serviço</button>`;
   const porCat = {};
   dados.servicos.forEach(s=>{ (porCat[s.Categoria||'Outros'] = porCat[s.Categoria||'Outros']||[]).push(s); });
   Object.keys(porCat).sort().forEach(cat=>{
     h += `<label>${esc(cat)}</label>`;
-    porCat[cat].forEach(s=>{
-      h += `<button class="srv" onclick='editarServico(${JSON.stringify(s).replace(/'/g,"&#39;")})' style="width:100%;text-align:left">
+    porCat[cat].sort((a,b)=>String(a.Descricao).localeCompare(String(b.Descricao))).forEach(s=>{
+      h += `<button class="srv" onclick="editarServico('${esc(s.ID)}')" style="width:100%;text-align:left">
         <span class="d">${esc(s.Descricao)}</span><span class="v">${moeda(s.ValorPadrao)}</span></button>`;
     });
   });
   tela.innerHTML = h + '</div>';
 }
 
-async function editarServico(s){
-  s = s || {ID:'',Descricao:'',Categoria:'Funilaria',ValorPadrao:''};
-  const desc = prompt('Descrição do serviço:', s.Descricao);
-  if (desc===null) return;
-  const valor = prompt('Valor padrão (só números):', s.ValorPadrao);
-  if (valor===null) return;
-  const cat = prompt('Categoria:', s.Categoria||'Funilaria');
-  if (cat===null) return;
+async function editarServico(sid){
+  const s = dados.servicos.find(x=>String(x.ID)===String(sid)) || {ID:'',Descricao:'',Categoria:'Funilaria',ValorPadrao:''};
+  const desc = prompt('Descrição do serviço:', s.Descricao); if (desc===null || !desc.trim()) return;
+  const valor = prompt('Valor padrão (só números):', s.ValorPadrao); if (valor===null) return;
+  const cat = prompt('Categoria:', s.Categoria||'Funilaria'); if (cat===null) return;
   try{
-    await chamar('salvarServico', { servico:{ID:s.ID, Descricao:desc, Categoria:cat, ValorPadrao:num(valor)} });
+    await chamar('salvarServico', { servico:{ID:s.ID, Descricao:desc.trim(), Categoria:cat, ValorPadrao:num(valor)} });
     await sincronizar(true); aviso('Serviço salvo'); telaServicos();
   }catch(e){ aviso(e.message, true); }
 }
@@ -733,7 +899,8 @@ function telaAjustes(){
       <div class="l"><span>Serviços cadastrados</span><b>${dados.servicos.length}</b></div>
       <div class="l"><span>Clientes</span><b>${dados.clientes.length}</b></div>
     </div>
-    <div class="aviso" style="margin-top:14px">Os dados ficam na sua planilha do Google. O app guarda uma cópia no aparelho para funcionar sem internet.</div>
+    <div class="aviso" style="margin-top:14px">Os dados ficam na sua planilha do Google. O app guarda uma cópia no aparelho para abrir mais rápido.</div>
+    <p style="text-align:center;color:var(--steel);font-size:12px">versão 2</p>
   </div>`;
 }
 async function salvarApi(){
@@ -746,7 +913,7 @@ async function salvarApi(){
 /* ===================== início ===================== */
 lerCache();
 render();
-if (API) sincronizar(true);
+if (API) sincronizar(true).then(render);
 if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(()=>{});
 </script>
 </body>

@@ -1,0 +1,4 @@
+# nunca versionar: a URL /exec da API é o que dá acesso à planilha
+api.txt
+*.local
+node_modules/

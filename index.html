@@ -136,7 +136,7 @@ input:focus,select:focus,textarea:focus{border-color:var(--ink);box-shadow:0 0 0
 /* barra inferior */
 nav{
   position:fixed;left:0;right:0;bottom:0;z-index:25;background:var(--paper);
-  border-top:1px solid var(--line);display:grid;grid-template-columns:repeat(4,1fr);
+  border-top:1px solid var(--line);display:grid;grid-template-columns:repeat(5,1fr);
   padding-bottom:env(safe-area-inset-bottom,0px);
 }
 nav button{padding:10px 4px 12px;font-size:11px;font-weight:600;color:var(--steel);display:grid;gap:3px;justify-items:center}
@@ -186,6 +186,37 @@ nav button[aria-current="true"] .i{transform:translateY(-1px)}
 .sugbox .novo{color:var(--ink);font-weight:700;background:#FFF6D6}
 .fotogrande{display:block;width:100%;height:190px;object-fit:cover;border-radius:var(--r);border:1px solid var(--line);margin-top:10px;background:var(--primer)}
 
+/* v3: grupos por cliente */
+.grupo{background:var(--paper);border:1px solid var(--line);border-radius:var(--r);margin-bottom:12px;overflow:hidden}
+.grupo-cab{display:flex;justify-content:space-between;align-items:center;gap:10px;width:100%;text-align:left;padding:12px;border-bottom:1px solid var(--line);background:#F7F8F9}
+.grupo-cab b{font-size:16px;font-weight:800}
+.grupo-cab small{display:block;font-size:12px;color:var(--steel);font-weight:500}
+.grupo-cab .aberto{font-size:13px;font-weight:700;color:var(--debt);white-space:nowrap}
+.orcrow{display:grid;grid-template-columns:1fr auto;gap:4px 10px;width:100%;text-align:left;padding:11px 12px;border-bottom:1px solid var(--line)}
+.orcrow:last-child{border-bottom:none}
+.orcrow:active{background:var(--primer)}
+.orcrow .pl{font-weight:800;letter-spacing:.5px}
+.orcrow .md{font-size:12px;color:var(--steel)}
+.orcrow .vl{text-align:right;font-weight:700}
+.orcrow .st{text-align:right}
+.busca{margin-bottom:12px}
+.veic{background:var(--paper);border:1px solid var(--line);border-radius:var(--r);margin-bottom:12px;overflow:hidden}
+.veic-cab{padding:12px;border-bottom:1px solid var(--line);display:flex;justify-content:space-between;align-items:center;gap:10px}
+.veic-cab b{font-size:17px;font-weight:800;letter-spacing:.5px}
+.veic-cab small{display:block;color:var(--steel);font-size:12px}
+.minibtn{font-size:13px;font-weight:700;padding:8px 12px;border-radius:var(--r);background:var(--tape);white-space:nowrap}
+
+/* v3: caixa */
+.recebido{background:var(--ink);color:#fff;border-radius:var(--r);padding:16px;margin-top:4px}
+.recebido span{font-size:13px;color:#B9C0C8}
+.recebido .v{font-size:32px;font-weight:800;letter-spacing:-.5px;margin:2px 0 8px}
+.recebido .l{display:flex;justify-content:space-between;font-size:14px;padding:3px 0;color:#D5DAE0}
+.periodo{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:12px}
+.pgrow{display:grid;grid-template-columns:1fr auto;gap:2px 10px;width:100%;text-align:left;background:var(--paper);border:1px solid var(--line);border-radius:var(--r);padding:11px 12px;margin-bottom:8px}
+.pgrow b{font-weight:700}
+.pgrow small{color:var(--steel);font-size:12px}
+.pgrow .vl{text-align:right;font-weight:800;color:var(--ok)}
+
 /* v2: pagamento */
 .pgbox{background:var(--paper);border:1px solid var(--line);border-radius:var(--r);padding:12px;margin-top:8px}
 .pglin{display:flex;justify-content:space-between;align-items:center;gap:8px;padding:8px 0;border-bottom:1px solid var(--line);font-size:14px}
@@ -208,9 +239,10 @@ nav button[aria-current="true"] .i{transform:translateY(-1px)}
 
 <nav>
   <button data-ir="painel" aria-current="true"><span class="i">▦</span>Painel</button>
+  <button data-ir="clientes"><span class="i">👤</span>Clientes</button>
   <button data-ir="novo"><span class="i">＋</span>Novo</button>
-  <button data-ir="servicos"><span class="i">☰</span>Serviços</button>
-  <button data-ir="ajustes"><span class="i">⚙</span>Ajustes</button>
+  <button data-ir="caixa"><span class="i">$</span>Caixa</button>
+  <button data-ir="mais"><span class="i">☰</span>Mais</button>
 </nav>
 
 <script>
@@ -233,6 +265,10 @@ let filtro = 'Todos';
 let pagAberto = false;
 let pagForma = 'Pix';
 let ocupado = false;
+let clienteAtual = '';
+let buscaCli = '';
+let periodo = 'mes';
+let pIni = '', pFim = '';
 
 const $ = s => document.querySelector(s);
 const tela = $('#tela');
@@ -244,7 +280,8 @@ const num = v => {
   return isNaN(n) ? 0 : n;
 };
 const moeda = v => num(v).toLocaleString('pt-BR',{style:'currency',currency:'BRL'});
-const hoje = () => new Date().toISOString().slice(0,10);
+const ymd = d => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+const hoje = () => ymd(new Date());
 const dataBR = d => { const p=String(d||'').slice(0,10).split('-'); return p.length===3 ? `${p[2]}/${p[1]}/${p[0]}` : (d||''); };
 const esc = s => String(s==null?'':s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
 const id = p => p + Date.now().toString(36).toUpperCase() + Math.floor(Math.random()*1000).toString(36).toUpperCase();
@@ -300,7 +337,7 @@ function lerCache(){
 async function sincronizar(silencioso){
   if (!API) return;
   try{
-    dados = await chamar('carregar');
+    dados = await chamar('carregar', { incluirArquivados:true });
     salvarCache();
     if (!silencioso){ aviso('Dados atualizados'); render(); }
   }catch(e){
@@ -309,13 +346,16 @@ async function sincronizar(silencioso){
 }
 
 /* ===================== navegação ===================== */
+const ABA = {painel:'painel',clientes:'clientes',cliente:'clientes',novo:'novo',caixa:'caixa',mais:'mais',servicos:'mais',ajustes:'mais',editor:''};
 function ir(t, arg){
   telaAtual = t;
   pagAberto = false;
-  document.querySelectorAll('nav button').forEach(b=>b.setAttribute('aria-current', b.dataset.ir===t ? 'true':'false'));
+  const aba = ABA[t]===undefined ? '' : ABA[t];
+  document.querySelectorAll('nav button').forEach(b=>b.setAttribute('aria-current', b.dataset.ir===aba ? 'true':'false'));
   $('#btVoltar').classList.toggle('hide', t==='painel');
-  if (t==='novo'){ rascunho = novoRascunho(); telaAtual='editor'; }
+  if (t==='novo'){ rascunho = novoRascunho(arg); telaAtual='editor'; }
   if (t==='editor' && arg) rascunho = arg;
+  if (t==='cliente' && arg) clienteAtual = arg;
   render();
   window.scrollTo(0,0);
 }
@@ -329,6 +369,10 @@ function render(){
   if (telaAtual==='painel') telaPainel();
   else if (telaAtual==='editor') telaEditor();
   else if (telaAtual==='servicos') telaServicos();
+  else if (telaAtual==='clientes') telaClientes();
+  else if (telaAtual==='cliente') telaCliente();
+  else if (telaAtual==='caixa') telaCaixa();
+  else if (telaAtual==='mais') telaMais();
   else if (telaAtual==='ajustes') telaAjustes();
 }
 
@@ -358,22 +402,32 @@ function telaPainel(){
   });
   h += '</div><div class="lista">';
 
-  const lista = (filtro==='Todos' ? ativos : ativos.filter(o=>o.Status===filtro))
-    .slice().sort((a,b)=> String(b.AtualizadoEm||'').localeCompare(String(a.AtualizadoEm||'')));
-
+  const lista = filtro==='Todos' ? ativos : ativos.filter(o=>o.Status===filtro);
+  const grupos = {};
   lista.forEach(o=>{
-    const saldo = num(o.Saldo), total = num(o.Total);
-    const fin = saldo<=0 && total>0 ? `<div class="pago">Pago</div>`
-             : saldo>0 && num(o.Pago)>0 ? `<div class="dev">falta ${moeda(saldo)}</div>` : '';
-    h += `<button class="card" onclick="abrir('${o.ID}')">
-      <div class="linha1"><div class="placa">${esc(o.Placa||'sem placa')}</div>
-        <span class="pill ${pillClasse(o.Status)}">${ROTULO[o.Status]||o.Status}</span></div>
-      <div class="cli">${esc(o.ClienteNome||'')}${o.Modelo?' · '+esc(o.Modelo):''}</div>
-      <div class="rod">
-        <div><div class="tot">${moeda(total)}</div>${fin}</div>
-        <div class="num">nº ${esc(o.Numero)} · ${dataBR(o.Data)}</div>
-      </div></button>`;
+    const k = chaveCli(o);
+    (grupos[k] = grupos[k] || {chave:k, nome:o.ClienteNome||'Sem nome', orcs:[]}).orcs.push(o);
   });
+  Object.values(grupos)
+    .sort((x,y)=> ultima(y.orcs).localeCompare(ultima(x.orcs)))
+    .forEach(g=>{
+      const aberto = g.orcs.reduce((s,o)=> s + (o.Status!=='Orcamento' ? Math.max(0,num(o.Saldo)) : 0), 0);
+      const placas = new Set(g.orcs.map(o=>String(o.Placa||'').toUpperCase())).size;
+      h += `<div class="grupo">
+        <button class="grupo-cab" onclick="ir('cliente','${esc(g.chave)}')">
+          <div><b>${esc(g.nome)}</b><small>${placas} ${placas>1?'carros':'carro'} · ${g.orcs.length} ${g.orcs.length>1?'orçamentos':'orçamento'}</small></div>
+          ${aberto>0?`<span class="aberto">falta ${moeda(aberto)}</span>`:''}
+        </button>`;
+      g.orcs.sort((x,y)=>String(y.AtualizadoEm||'').localeCompare(String(x.AtualizadoEm||''))).forEach(o=>{
+        h += `<button class="orcrow" onclick="abrir('${o.ID}')">
+          <div><span class="pl">${esc(o.Placa||'sem placa')}</span> <span class="md">${esc(o.Modelo||'')} · nº ${esc(o.Numero)}</span></div>
+          <div class="vl">${moeda(o.Total)}</div>
+          <div><span class="pill ${pillClasse(o.Status)}">${ROTULO[o.Status]||o.Status}</span></div>
+          <div class="st">${num(o.Total)>0&&num(o.Saldo)<=0?'<span class="pago">Pago</span>':num(o.Pago)>0?`<span class="dev">falta ${moeda(o.Saldo)}</span>`:''}</div>
+        </button>`;
+      });
+      h += `</div>`;
+    });
   tela.innerHTML = h + '</div>';
 }
 function filtrar(s){ filtro = s; telaPainel(); }
@@ -389,9 +443,9 @@ function abrir(oid){
   });
 }
 
-function novoRascunho(){
+function novoRascunho(pref){
   return {
-    orcamento:{ ID:'', Numero:'', Data:hoje(), ClienteNome:'', Telefone:'', Placa:'', Modelo:'', Ano:'', Cor:'', Status:'Orcamento', Obs:'', Arquivado:false },
+    orcamento:Object.assign({ ID:'', Numero:'', Data:hoje(), ClienteID:'', ClienteNome:'', Telefone:'', Placa:'', Modelo:'', Ano:'', Cor:'', Status:'Orcamento', Obs:'', Arquivado:false }, pref||{}),
     itens:[{ ID:id('I'), Descricao:'', Qtd:1, Valor:'', FotoURL:'' }],
     pagamentos:[]
   };
@@ -449,6 +503,7 @@ function telaEditor(){
   <div class="sug"><input id="fCli" value="${esc(o.ClienteNome)}" placeholder="nome do cliente" autocomplete="off"></div>
   <label for="fTel">WhatsApp (com DDD)</label>
   <input id="fTel" value="${esc(o.Telefone)}" inputmode="tel" placeholder="69 99999-9999">
+  <div id="veicChips"></div>
   <div class="grid2">
     <div><label for="fPlaca">Placa</label><input id="fPlaca" value="${esc(o.Placa)}" style="text-transform:uppercase" placeholder="ABC1D23"></div>
     <div><label for="fData">Data</label><input id="fData" type="date" value="${esc(String(o.Data||hoje()).slice(0,10))}"></div>
@@ -530,12 +585,15 @@ function telaEditor(){
 
   tela.innerHTML = h + '</div>';
   ligarCliente();
+  if (novo) mostrarVeiculos();
 }
 
 /* --- campos --- */
 function lerCampos(){
   const g = i => { const el=$('#'+i); return el ? el.value : undefined; };
   const o = rascunho.orcamento;
+  const nomeNovo = g('fCli');
+  if (nomeNovo!==undefined && semAcento(nomeNovo.trim())!==semAcento(String(o.ClienteNome||'').trim())) o.ClienteID = '';
   const map = {ClienteNome:'fCli',Telefone:'fTel',Placa:'fPlaca',Data:'fData',Modelo:'fModelo',Ano:'fAno',Cor:'fCor',Obs:'fObs'};
   for (const k in map){ const v = g(map[k]); if (v!==undefined) o[k] = k==='Placa' ? v.toUpperCase() : v; }
 }
@@ -628,7 +686,11 @@ function ligarCliente(){
     box.querySelectorAll('button').forEach(b=>{
       b.addEventListener('pointerdown', ev=> ev.preventDefault());
       b.addEventListener('mousedown', ev=> ev.preventDefault());
-      b.addEventListener('click', ()=>{ const c = lista[+b.dataset.k]; el.value=c.Nome; $('#fTel').value=c.Telefone; fecharSug(); });
+      b.addEventListener('click', ()=>{
+        const c = lista[+b.dataset.k];
+        el.value=c.Nome; $('#fTel').value=c.Telefone; fecharSug();
+        lerCampos(); rascunho.orcamento.ClienteID = c.ID; mostrarVeiculos();
+      });
     });
     el.closest('.sug').appendChild(box);
   };
@@ -857,6 +919,188 @@ async function gerarPDF(compartilhar){
   aviso('PDF baixado. Anexe na conversa que abriu.');
 }
 
+/* ===================== clientes ===================== */
+const ultima = orcs => orcs.reduce((m,o)=> String(o.AtualizadoEm||o.Data||'')>m ? String(o.AtualizadoEm||o.Data||'') : m, '');
+
+// junta orçamentos antigos (sem ClienteID) ao cliente certo pelo nome
+function chaveCli(o){
+  if (o.ClienteID) return 'id:' + o.ClienteID;
+  const n = semAcento(String(o.ClienteNome||'').trim());
+  const c = dados.clientes.find(c=> semAcento(String(c.Nome).trim())===n);
+  return c ? 'id:' + c.ID : 'n:' + n;
+}
+function listaClientes(){
+  const mapa = {};
+  dados.clientes.forEach(c=>{ mapa['id:'+c.ID] = {chave:'id:'+c.ID, ID:c.ID, Nome:c.Nome, Telefone:c.Telefone, orcs:[]}; });
+  dados.orcamentos.forEach(o=>{
+    const k = chaveCli(o);
+    if (!mapa[k]) mapa[k] = {chave:k, ID:o.ClienteID||'', Nome:o.ClienteNome||'Sem nome', Telefone:o.Telefone||'', orcs:[]};
+    mapa[k].orcs.push(o);
+  });
+  return Object.values(mapa);
+}
+function veiculosDe(cli){
+  const v = {};
+  cli.orcs.slice().sort((a,b)=>String(a.Data).localeCompare(String(b.Data))).forEach(o=>{
+    const p = String(o.Placa||'').toUpperCase().trim() || '—';
+    if (!v[p]) v[p] = {Placa:String(o.Placa||'').toUpperCase(), Modelo:'', Ano:'', Cor:'', orcs:[]};
+    ['Modelo','Ano','Cor'].forEach(c=>{ if (o[c]) v[p][c] = o[c]; });
+    v[p].orcs.push(o);
+  });
+  return Object.values(v);
+}
+const emAberto = orcs => orcs.reduce((s,o)=> s + (o.Status!=='Orcamento' && String(o.Arquivado)!=='true' ? Math.max(0,num(o.Saldo)) : 0), 0);
+
+function mostrarVeiculos(){
+  const box = $('#veicChips'); if (!box) return;
+  const o = rascunho.orcamento;
+  const n = semAcento(String(o.ClienteNome||'').trim());
+  const cli = n && listaClientes().find(c=> (o.ClienteID && String(c.ID)===String(o.ClienteID)) || semAcento(String(c.Nome).trim())===n);
+  const vs = cli ? veiculosDe(cli).filter(v=>v.Placa) : [];
+  if (!vs.length){ box.innerHTML=''; return; }
+  box.innerHTML = `<label>Carros deste cliente</label><div class="formas">` +
+    vs.map((v,k)=>`<button class="chip" data-k="${k}">${esc(v.Placa)}${v.Modelo?' · '+esc(v.Modelo):''}</button>`).join('') + `</div>`;
+  box.querySelectorAll('button').forEach(b=> b.onclick = ()=>{
+    const v = vs[+b.dataset.k];
+    $('#fPlaca').value=v.Placa||''; $('#fModelo').value=v.Modelo||''; $('#fAno').value=v.Ano||''; $('#fCor').value=v.Cor||'';
+    lerCampos(); aviso('Carro preenchido');
+  });
+}
+
+function telaClientes(){
+  cabecalho('Clientes','carros e histórico de cada um');
+  const t = semAcento(buscaCli.trim());
+  const lista = listaClientes()
+    .filter(c=> !t || semAcento(c.Nome).includes(t) || String(c.Telefone).replace(/\D/g,'').includes(t.replace(/\D/g,'')||'#') ||
+                 c.orcs.some(o=> semAcento(o.Placa).includes(t)))
+    .sort((a,b)=> ultima(b.orcs).localeCompare(ultima(a.orcs)) || String(a.Nome).localeCompare(String(b.Nome)));
+  let h = `<div class="wrap">
+    <input class="busca" id="fBusca" value="${esc(buscaCli)}" placeholder="buscar por nome, telefone ou placa" autocomplete="off">`;
+  if (!lista.length) h += `<div class="vazio">Nenhum cliente encontrado. Os clientes são cadastrados sozinhos quando você salva um orçamento.</div>`;
+  lista.forEach(c=>{
+    const nv = veiculosDe(c).filter(v=>v.Placa).length;
+    const ab = emAberto(c.orcs);
+    h += `<button class="card" onclick="ir('cliente','${esc(c.chave)}')">
+      <div class="linha1"><div class="placa" style="letter-spacing:0;font-size:17px">${esc(c.Nome)}</div>
+        ${ab>0?`<span class="dev">falta ${moeda(ab)}</span>`:''}</div>
+      <div class="cli">${esc(c.Telefone||'sem telefone')} · ${nv} ${nv===1?'carro':'carros'} · ${c.orcs.length} ${c.orcs.length===1?'orçamento':'orçamentos'}</div>
+    </button>`;
+  });
+  tela.innerHTML = h + '</div>';
+  const b = $('#fBusca');
+  b.oninput = ()=>{ buscaCli = b.value; const pos=b.selectionStart; telaClientes(); const n=$('#fBusca'); n.focus(); n.setSelectionRange(pos,pos); };
+}
+
+function telaCliente(){
+  const c = listaClientes().find(x=>x.chave===clienteAtual);
+  if (!c){ ir('clientes'); return; }
+  cabecalho(c.Nome, c.Telefone || 'sem telefone');
+  const vs = veiculosDe(c);
+  const totalServ = c.orcs.filter(o=>o.Status!=='Orcamento').reduce((s,o)=>s+num(o.Total),0);
+  const ab = emAberto(c.orcs);
+  const base = {ClienteID:c.ID||'', ClienteNome:c.Nome, Telefone:c.Telefone||''};
+  const tel = String(c.Telefone||'').replace(/\D/g,'');
+  const wa = tel ? 'https://wa.me/' + (tel.length<=11 ? '55'+tel : tel) : '';
+
+  let h = `<div class="wrap">
+    <div class="tot-box" style="margin-top:0">
+      <div class="l"><span>Serviços aprovados</span><b>${moeda(totalServ)}</b></div>
+      <div class="big"><span>Em aberto</span><b class="${ab>0?'saldo-dev':'saldo-ok'}">${moeda(ab)}</b></div>
+    </div>
+    <div class="acoes">
+      <button class="btn" onclick='ir("novo", ${JSON.stringify(base).replace(/'/g,"&#39;")})'>Novo orçamento</button>
+      ${wa?`<a class="btn sec" href="${wa}" target="_blank" rel="noopener" style="text-decoration:none">Chamar no WhatsApp</a>`:'<span></span>'}
+    </div>
+    <div class="secao">Carros</div>`;
+
+  vs.forEach(v=>{
+    const pref = Object.assign({}, base, {Placa:v.Placa, Modelo:v.Modelo, Ano:v.Ano, Cor:v.Cor});
+    h += `<div class="veic">
+      <div class="veic-cab">
+        <div><b>${esc(v.Placa||'sem placa')}</b><small>${esc([v.Modelo,v.Ano,v.Cor].filter(Boolean).join(' · '))}</small></div>
+        <button class="minibtn" onclick='ir("novo", ${JSON.stringify(pref).replace(/'/g,"&#39;")})'>＋ Orçamento</button>
+      </div>`;
+    v.orcs.slice().reverse().forEach(o=>{
+      h += `<button class="orcrow" onclick="abrir('${o.ID}')">
+        <div><span class="pl" style="font-weight:700">nº ${esc(o.Numero)}</span> <span class="md">${dataBR(o.Data)}${String(o.Arquivado)==='true'?' · arquivado':''}</span></div>
+        <div class="vl">${moeda(o.Total)}</div>
+        <div><span class="pill ${pillClasse(o.Status)}">${ROTULO[o.Status]||o.Status}</span></div>
+        <div class="st">${num(o.Total)>0&&num(o.Saldo)<=0?'<span class="pago">Pago</span>':num(o.Pago)>0?`<span class="dev">falta ${moeda(o.Saldo)}</span>`:''}</div>
+      </button>`;
+    });
+    h += `</div>`;
+  });
+  tela.innerHTML = h + '</div>';
+}
+
+/* ===================== caixa ===================== */
+function intervalo(){
+  const d = new Date();
+  if (periodo==='hoje') return [hoje(), hoje(), 'Hoje'];
+  if (periodo==='7d'){ const i=new Date(d); i.setDate(d.getDate()-6); return [ymd(i), hoje(), 'Últimos 7 dias']; }
+  if (periodo==='mes') return [ymd(new Date(d.getFullYear(), d.getMonth(), 1)), hoje(), 'Este mês'];
+  if (periodo==='mesant'){
+    const i = new Date(d.getFullYear(), d.getMonth()-1, 1), f = new Date(d.getFullYear(), d.getMonth(), 0);
+    return [ymd(i), ymd(f), i.toLocaleDateString('pt-BR',{month:'long',year:'numeric'})];
+  }
+  return [pIni||hoje(), pFim||hoje(), 'Período escolhido'];
+}
+function mudarPeriodo(p){ periodo = p; telaCaixa(); }
+
+function telaCaixa(){
+  const [ini, fim, nome] = intervalo();
+  cabecalho('Caixa', nome.charAt(0).toUpperCase()+nome.slice(1));
+  const orcPorId = {}; dados.orcamentos.forEach(o=> orcPorId[o.ID]=o);
+  const pags = dados.pagamentos
+    .filter(p=>{ const d=String(p.Data).slice(0,10); return d>=ini && d<=fim; })
+    .sort((a,b)=> String(b.Data).localeCompare(String(a.Data)));
+  const total = pags.reduce((s,p)=>s+num(p.Valor),0);
+  const porForma = {};
+  pags.forEach(p=>{ porForma[p.Forma||'Outro'] = (porForma[p.Forma||'Outro']||0) + num(p.Valor); });
+
+  const ativos = dados.orcamentos.filter(o=>String(o.Arquivado)!=='true' && o.Status!=='Orcamento' && num(o.Saldo)>0);
+  const entregues = ativos.filter(o=>o.Status==='Aguardando pagamento').reduce((s,o)=>s+num(o.Saldo),0);
+  const emServico = ativos.filter(o=>o.Status!=='Aguardando pagamento').reduce((s,o)=>s+num(o.Saldo),0);
+
+  const ops = [['hoje','Hoje'],['7d','7 dias'],['mes','Este mês'],['mesant','Mês passado'],['outro','Escolher']];
+  let h = `<div class="chips">${ops.map(([k,r])=>`<button class="chip" aria-pressed="${periodo===k}" onclick="mudarPeriodo('${k}')">${r}</button>`).join('')}</div><div class="wrap">`;
+  if (periodo==='outro'){
+    h += `<div class="periodo">
+      <div><label for="pIni" style="margin-top:0">De</label><input id="pIni" type="date" value="${ini}"></div>
+      <div><label for="pFim" style="margin-top:0">Até</label><input id="pFim" type="date" value="${fim}"></div></div>`;
+  }
+  h += `<div class="recebido"><span>Recebido</span><div class="v">${moeda(total)}</div>
+    ${Object.keys(porForma).map(f=>`<div class="l"><span>${FORMA_ROT[f]||f}</span><b>${moeda(porForma[f])}</b></div>`).join('')}
+    ${!pags.length?'<div class="l"><span>Nenhum recebimento no período</span></div>':''}
+  </div>
+  <div class="tot-box">
+    <div class="l"><span>A receber de carros já entregues</span><b class="${entregues>0?'saldo-dev':''}">${moeda(entregues)}</b></div>
+    <div class="l"><span>A receber de serviços em andamento</span><b>${moeda(emServico)}</b></div>
+  </div>
+  <div class="secao">Recebimentos (${pags.length})</div>`;
+  pags.forEach(p=>{
+    const o = orcPorId[p.OrcamentoID] || {};
+    h += `<button class="pgrow" onclick="${o.ID?`abrir('${o.ID}')`:''}">
+      <b>${esc(o.ClienteNome||'Orçamento removido')}</b><span class="vl">${moeda(p.Valor)}</span>
+      <small>${dataBR(p.Data)} · ${esc(o.Placa||'')} ${o.Numero?'· nº '+esc(o.Numero):''}</small><small style="text-align:right">${FORMA_ROT[p.Forma]||p.Forma}</small>
+    </button>`;
+  });
+  tela.innerHTML = h + '</div>';
+  if (periodo==='outro'){
+    $('#pIni').onchange = e=>{ pIni = e.target.value; telaCaixa(); };
+    $('#pFim').onchange = e=>{ pFim = e.target.value; telaCaixa(); };
+  }
+}
+
+/* ===================== mais ===================== */
+function telaMais(){
+  cabecalho('Mais','lista de serviços e conexão');
+  tela.innerHTML = `<div class="wrap">
+    <button class="srv" style="width:100%;text-align:left" onclick="ir('servicos')"><span class="d">Serviços<br><span class="c">a lista que aparece nos orçamentos · ${dados.servicos.length}</span></span><span>›</span></button>
+    <button class="srv" style="width:100%;text-align:left" onclick="ir('ajustes')"><span class="d">Ajustes<br><span class="c">conexão com a planilha</span></span><span>›</span></button>
+  </div>`;
+}
+
 /* ===================== serviços ===================== */
 function telaServicos(){
   cabecalho('Serviços','a lista que aparece nos orçamentos');
@@ -900,7 +1144,7 @@ function telaAjustes(){
       <div class="l"><span>Clientes</span><b>${dados.clientes.length}</b></div>
     </div>
     <div class="aviso" style="margin-top:14px">Os dados ficam na sua planilha do Google. O app guarda uma cópia no aparelho para abrir mais rápido.</div>
-    <p style="text-align:center;color:var(--steel);font-size:12px">versão 2</p>
+    <p style="text-align:center;color:var(--steel);font-size:12px">versão 3</p>
   </div>`;
 }
 async function salvarApi(){

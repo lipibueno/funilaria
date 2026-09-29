@@ -63,6 +63,7 @@ function salvarOrcamento(req) {
 
   if (!o.ID) o.ID = novoId('O');
   if (!o.Numero) o.Numero = proximoNumero();
+  vincularCliente(o);
 
   var total = 0;
   itens.forEach(function (it) {
@@ -98,6 +99,28 @@ function salvarOrcamento(req) {
   });
 
   return { orcamento: o, itens: itens, pagamentos: pagamentos };
+}
+
+// Liga o orcamento ao cliente: acha pelo nome ou telefone, ou cadastra um novo.
+function vincularCliente(o) {
+  var nome = String(o.ClienteNome || '').trim();
+  if (!nome) return;
+  var tel = String(o.Telefone || '').replace(/\D/g, '');
+  var achou = null;
+  ler('Clientes').forEach(function (c) {
+    if (achou) return;
+    if (o.ClienteID && String(c.ID) === String(o.ClienteID)) achou = c;
+    else if (String(c.Nome).trim().toLowerCase() === nome.toLowerCase()) achou = c;
+    else if (tel && String(c.Telefone).replace(/\D/g, '') === tel) achou = c;
+  });
+  if (!achou) {
+    achou = { ID: novoId('C'), Nome: nome, Telefone: o.Telefone || '', Obs: '' };
+    gravar('Clientes', achou);
+  } else if (o.Telefone && String(achou.Telefone) !== String(o.Telefone)) {
+    achou.Telefone = o.Telefone;
+    gravar('Clientes', achou);
+  }
+  o.ClienteID = achou.ID;
 }
 
 // Regra do saldo: com saldo devedor, concluir manda para espera.

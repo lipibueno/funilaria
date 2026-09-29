@@ -1,5 +1,5 @@
 // v2: a página sempre busca a versão nova quando há internet
-const CACHE = 'funilaria-v2';
+const CACHE = 'funilaria-v3';
 const ARQUIVOS = ['./', './index.html', './manifest.json',
   'https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js'];
 

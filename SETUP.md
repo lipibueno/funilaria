@@ -64,19 +64,35 @@ aplicativo justamente comparando esse valor.
 ## 3. Publicar o Apps Script
 
 1. Na planilha **Funilaria - Base**: **Extensões → Apps Script**.
-2. Apague o conteúdo e cole o `Codigo.gs` desta pasta. Salve.
-3. **Implantar → Nova implantação → App da Web**:
+2. Apague o conteúdo (Ctrl+A) e cole o `Codigo.gs` desta pasta por cima. Salve.
+3. **Conceda as permissões antes de publicar.** Escolha a função **`autorizar`** na
+   lista suspensa do topo do editor e clique em **Executar**:
+   - "Autorização necessária" → **Revisar permissões**
+   - Escolha a conta dona da planilha
+   - "O Google não verificou este app" → **Avançado** → **Acessar (nome do projeto)**
+   - **Permitir**
+
+   O registro de execução deve terminar em "Tudo certo".
+4. **Implantar → Nova implantação → App da Web**:
    - Executar como: **Eu**
    - Quem pode acessar: **Qualquer pessoa**
-4. Copie a URL que termina em `/exec`.
+5. Copie a URL que termina em `/exec`.
 
 > "Qualquer pessoa" aqui é exigência do Google para o app conseguir chamar a API sem
 > passar pela tela de login dele. O controle de acesso real é o do passo 4: toda
 > chamada verifica o token e consulta a aba `Usuarios`. Sem token válido de um e-mail
 > autorizado, nada é lido nem gravado.
 
-Ao publicar, o script vai pedir autorização para acessar a planilha, o Drive e fazer
-chamadas externas (essa última é para validar o token no Google). É esperado.
+O passo 3 existe por um motivo específico: a permissão de **chamada externa**
+(`script.external_request`) é a que valida o login, e as versões antigas do app não a
+usavam. Se o script já estava autorizado de antes, a autorização antiga não a inclui, e
+o app falha no login com *"Você não tem permissão para chamar UrlFetchApp.fetch"*.
+
+Rodar `doGet` **não** resolve: essa função não chama nenhum serviço externo, então o
+Google não pede a permissão que falta. É por isso que existe a função `autorizar` — ela
+encosta de propósito na planilha, no Drive e na chamada externa, de uma vez.
+
+Se esse erro aparecer, rode `autorizar` e **publique uma nova versão** depois.
 
 ## 4. Primeiro acesso e cadastro das pessoas
 
@@ -258,6 +274,6 @@ com um simulador do Apps Script:
 node testes/testes.js
 ```
 
-São 47 casos cobrindo login, papéis, concorrência, travamento após pagamento, estorno,
+São 49 casos cobrindo login, papéis, concorrência, travamento após pagamento, estorno,
 cancelamento, limites de valor e a idempotência da fila offline. Há também `node testes/migra.js`, que sobe uma planilha
 na estrutura antiga com dados e confere que a migração preserva tudo.

@@ -64,6 +64,46 @@ function cabecalhoDe(s) {
   return v.map(String);
 }
 
+/**
+ * RODE ESTA FUNCAO UMA VEZ no editor, depois de colar o codigo e antes de publicar.
+ *
+ * Ela encosta de proposito em todos os servicos que a API usa, para o Google pedir
+ * todas as permissoes numa tacada so. A que costuma faltar e a de chamada externa
+ * (script.external_request): e ela que valida o login, e as versoes antigas do app
+ * nao usavam, entao a autorizacao antiga nao a inclui.
+ *
+ * Rodar doGet NAO serve para isso, porque doGet nao chama nenhum servico externo.
+ */
+function autorizar() {
+  var linhas = ['Permissoes concedidas:'];
+
+  garantirEstrutura();
+  linhas.push('- planilha: ' + pl().getName());
+
+  // a chamada externa que valida o token do login (token de mentira de proposito)
+  var r = UrlFetchApp.fetch('https://oauth2.googleapis.com/tokeninfo?id_token=teste',
+                            { muteHttpExceptions: true });
+  linhas.push('- chamada externa (validacao do login): HTTP ' + r.getResponseCode() +
+              ' (400 aqui e o esperado)');
+
+  linhas.push('- pasta de fotos: ' + pastaFotos().getName());
+
+  try {
+    linhas.push('- conta do dono: ' + Session.getEffectiveUser().getEmail());
+  } catch (e) {
+    linhas.push('- conta do dono: nao foi possivel ler');
+  }
+
+  linhas.push('');
+  linhas.push(CLIENT_ID ? 'CLIENT_ID preenchido: ' + CLIENT_ID.slice(0, 18) + '...'
+                        : 'ATENCAO: CLIENT_ID vazio!');
+  linhas.push('Tudo certo. Agora publique: Implantar > Gerenciar implantacoes > lapis > Nova versao.');
+
+  var txt = linhas.join('\n');
+  Logger.log(txt);
+  return txt;
+}
+
 /* ===================== entrada ===================== */
 
 function doGet() {
@@ -145,9 +185,20 @@ function emailDoToken(token) {
 
   if (!CLIENT_ID) throw erro('CONFIG', 'Falta preencher CLIENT_ID no Apps Script (veja SETUP.md)');
 
-  var r = UrlFetchApp.fetch(
-    'https://oauth2.googleapis.com/tokeninfo?id_token=' + encodeURIComponent(token),
-    { muteHttpExceptions: true });
+  var r;
+  try {
+    r = UrlFetchApp.fetch(
+      'https://oauth2.googleapis.com/tokeninfo?id_token=' + encodeURIComponent(token),
+      { muteHttpExceptions: true });
+  } catch (falha) {
+    // acontece quando a autorizacao do script e anterior a esta versao do codigo
+    if (String(falha).indexOf('UrlFetchApp') >= 0 || String(falha).indexOf('external_request') >= 0) {
+      throw erro('CONFIG', 'O script nao tem permissao para validar o login. ' +
+                 'No editor do Apps Script, rode a funcao "autorizar" uma vez, ' +
+                 'aceite as permissoes e publique uma nova versao.');
+    }
+    throw falha;
+  }
   if (r.getResponseCode() !== 200) throw erro('NAO_AUTORIZADO', 'Login expirado. Entre de novo.');
 
   var d = JSON.parse(r.getContentText());

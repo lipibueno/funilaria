@@ -84,6 +84,24 @@ t('token expirado nao entra', () => {
   recusa(() => a.post({ action: 'carregar', token: 'velho' }), 'NAO_AUTORIZADO');
 });
 
+t('script sem permissao de chamada externa avisa o que fazer', () => {
+  const a = novoApp();
+  a.g.UrlFetchApp.fetch = () => {
+    throw new Error('Voce nao tem permissao para chamar UrlFetchApp.fetch. ' +
+                    'Permissoes necessarias: https://www.googleapis.com/auth/script.external_request');
+  };
+  const r = recusa(() => a.chamar('carregar', 'dono@oficina.com'), 'CONFIG');
+  if (!/autorizar/.test(r.error)) throw new Error('a mensagem devia dizer para rodar "autorizar": ' + r.error);
+  if (!/nova versao/i.test(r.error)) throw new Error('a mensagem devia mandar publicar de novo: ' + r.error);
+});
+
+t('outra falha da chamada externa nao vira mensagem de permissao', () => {
+  const a = novoApp();
+  a.g.UrlFetchApp.fetch = () => { throw new Error('DNS timeout'); };
+  const r = recusa(() => a.chamar('carregar', 'dono@oficina.com'));
+  if (r.codigo === 'CONFIG') throw new Error('confundiu falha de rede com falta de permissao');
+});
+
 t('e-mail estranho nao entra nem no primeiro acesso', () => {
   const a = novoApp();
   recusa(() => a.chamar('carregar', 'invasor@gmail.com'), 'NAO_AUTORIZADO');

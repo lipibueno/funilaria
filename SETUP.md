@@ -13,21 +13,36 @@ Tempo estimado: 20 a 30 minutos, uma vez só.
 
 1. Abra <https://console.cloud.google.com/> com a **mesma conta Google que é dona da planilha**.
 2. Crie um projeto (ou use um existente). Nome livre, ex. `Orcamentos Funilaria`.
-3. Menu **APIs e serviços → Tela de permissão OAuth**:
-   - Tipo: **Externo**
-   - Nome do app: `Orçamentos Funilaria`
-   - E-mail de suporte e de contato: o seu
-   - Salve. Não precisa publicar nem pedir verificação: em **Usuários de teste**,
-     adicione os e-mails de quem vai usar (você e os funcionários).
-4. Menu **APIs e serviços → Credenciais → Criar credenciais → ID do cliente OAuth**:
-   - Tipo de aplicativo: **Aplicativo da Web**
-   - Em **Origens JavaScript autorizadas**, adicione o endereço onde o app fica hospedado:
-     - GitHub Pages: `https://SEUUSUARIO.github.io`
-     - se testar na máquina: `http://localhost:8080`
-   - Criar. Copie o **ID do cliente** (termina em `.apps.googleusercontent.com`).
+3. Abra o **Google Auth Platform** (busque por "Google Auth Platform" no topo, ou
+   menu **APIs e serviços → Tela de permissão OAuth**) e preencha:
+   - **Branding**: nome do app `Orçamentos Funilaria` e seu e-mail de suporte
+   - **Público-alvo**: tipo **Externo**. Não precisa publicar nem pedir verificação —
+     enquanto ficar em "Teste", basta adicionar em **Usuários de teste** os e-mails de
+     quem vai usar (você e os funcionários).
 
-> A origem tem que bater exatamente com o endereço do app, sem a barra final e sem o
-> caminho. Se errar, o botão de login aparece mas não funciona.
+   > Em contas mais antigas, esses dois blocos aparecem juntos como uma única tela
+   > chamada "Tela de permissão OAuth", com o campo "Usuários de teste" no fim.
+
+4. Menu **Clientes → Criar cliente** (nas contas antigas: **Credenciais → Criar
+   credenciais → ID do cliente OAuth**):
+   - Tipo de aplicativo: **Aplicativo da Web**
+   - Nome: qualquer coisa, só identifica no console. Ex.: `Cliente Web 1`
+   - Em **Origens JavaScript autorizadas**, uma URI por linha, com o endereço onde o
+     app fica hospedado:
+     - GitHub Pages: `https://SEUUSUARIO.github.io`
+     - se for testar na máquina, adicione também: `http://localhost:8080`
+   - **Deixe "URIs de redirecionamento autorizados" vazio.** Esse campo é para login
+     feito por servidor; o nosso usa só a origem JavaScript.
+   - Clique em **Criar**.
+5. Abre uma caixa com o **ID do cliente** (termina em `.apps.googleusercontent.com`).
+   Copie. Se fechar sem copiar, ele continua em **Clientes → o cliente que você criou**.
+
+> A origem é só `https://` + domínio: **sem o caminho e sem a barra no fim**. Mesmo que
+> o app fique em `https://seuusuario.github.io/cris/`, a origem é
+> `https://seuusuario.github.io`. Se errar, o botão de login aparece mas não funciona.
+
+> Se sobrar um campo de URI em branco, o formulário acusa "Origem inválida: o URI não
+> pode estar vazio". Apague o campo na lixeira ao lado dele.
 
 ## 2. Colar o ID do cliente nos dois lugares
 

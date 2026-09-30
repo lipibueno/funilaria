@@ -1,6 +1,6 @@
-// v6: a página sempre busca a versão nova quando há internet.
+// v7: a página sempre busca a versão nova quando há internet.
 // Ao subir uma alteração, troque o número do CACHE para limpar a cópia antiga.
-const CACHE = 'funilaria-v6';
+const CACHE = 'funilaria-v7';
 
 // Essenciais: se um destes falhar, a instalação falha mesmo (e aí é erro de verdade).
 const ESSENCIAIS = ['./', './index.html', './manifest.json'];
@@ -33,8 +33,10 @@ self.addEventListener('fetch', e => {
 
   const pagina = req.mode === 'navigate' || req.url.endsWith('.html') || req.url.endsWith('/');
   if (pagina){
-    // rede primeiro: pega atualizações; sem internet, usa a cópia
-    e.respondWith(fetch(req).then(res => {
+    // Rede primeiro, e sem passar pelo cache do navegador: o GitHub Pages manda
+    // Cache-Control: max-age=600, e sem o no-cache a atualização só chegava depois
+    // de 10 minutos. Com ele o navegador revalida pelo ETag, que é barato.
+    e.respondWith(fetch(req, { cache: 'no-cache' }).then(res => {
       const copia = res.clone();
       caches.open(CACHE).then(c => c.put(req, copia)).catch(() => {});
       return res;

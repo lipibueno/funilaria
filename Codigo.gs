@@ -15,7 +15,7 @@
  *     Depois cadastre os funcionarios nessa aba.
  */
 
-var CLIENT_ID = '';              // <<< cole aqui o ID do cliente OAuth
+var CLIENT_ID = '415802568647-spdi71hljj8a8778n5a811ukb7hco3ns.apps.googleusercontent.com';
 var JANELA_CORRECAO_MIN = 15;    // minutos para corrigir o proprio lancamento sem ser dono
 var MESES_PADRAO = 12;           // quanto historico o app baixa por padrao
 var MAX_FOTO_MB = 5;

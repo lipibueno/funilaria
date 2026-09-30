@@ -2084,7 +2084,7 @@ function telaAjustes(){
     </div>
     <div class="aviso" style="margin-top:14px">Os dados ficam na sua planilha do Google. O app guarda uma cópia no aparelho para abrir mais rápido, e ela é apagada quando você sai da conta.</div>
     ${CLIENT_ID?'':'<div class="aviso" style="margin-top:10px;border-color:var(--debt);color:var(--debt)"><b>Sem login configurado.</b> Preencha CLIENT_ID no index.html e no Apps Script antes de usar de verdade. Veja SETUP.md.</div>'}
-    <p style="text-align:center;color:var(--steel);font-size:12px">versão 6</p>
+    <p style="text-align:center;color:var(--steel);font-size:12px">versão 7</p>
   </div>`;
 }
 // Testa exatamente a URL que está gravada no app, sem depender de login.
@@ -2169,7 +2169,27 @@ if (CLIENT_ID){
   if (API) sincronizar(true).then(render);
 }
 pintarAvisoFila();
-if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(()=>{});
+// Atualização: procura versão nova ao abrir e sempre que o app volta para a frente.
+// Quando a nova assume, recarrega uma vez — senão a pessoa fica vendo a versão velha
+// sem saber, que foi exatamente o que aconteceu ao publicar a v6.
+if ('serviceWorker' in navigator){
+  navigator.serviceWorker.register('sw.js').then(reg=>{
+    reg.update().catch(()=>{});
+    document.addEventListener('visibilitychange', ()=>{
+      if (!document.hidden) reg.update().catch(()=>{});
+    });
+  }).catch(()=>{});
+
+  // precisa ser lido AGORA: dentro do controllerchange o controlador já é o novo
+  const tinhaControlador = !!navigator.serviceWorker.controller;
+  let recarregando = false;
+  navigator.serviceWorker.addEventListener('controllerchange', ()=>{
+    // na primeira instalação não havia controlador: aí não recarrega
+    if (recarregando || !tinhaControlador) return;
+    recarregando = true;
+    location.reload();
+  });
+}
 </script>
 </body>
 </html>

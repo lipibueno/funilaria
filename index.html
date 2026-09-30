@@ -433,13 +433,16 @@ function bancoFotos(){
 async function guardarFotoLocal(itemId, blob){
   const sid = String(itemId);
   const db = await bancoFotos();
-  await new Promise((ok, falha)=>{
-    const tx = db.transaction(FOTO_STORE, 'readwrite');
-    tx.objectStore(FOTO_STORE).put({id:sid, blob, quando:Date.now()});
-    tx.oncomplete = ok;
-    tx.onerror = ()=> falha(tx.error || new Error('Não foi possível guardar a foto.'));
-  });
-  db.close();
+  try{
+    await new Promise((ok, falha)=>{
+      const tx = db.transaction(FOTO_STORE, 'readwrite');
+      tx.objectStore(FOTO_STORE).put({id:sid, blob, quando:Date.now()});
+      tx.oncomplete = ok;
+      tx.onerror = ()=> falha(tx.error || new Error('Não foi possível guardar a foto.'));
+    });
+  } finally {
+    db.close();     // no finally: conexão pendurada impede futuras versões do banco
+  }
   fotosLocais.add(sid); salvarIndiceFotos();
   if (urlsFotos[sid]) URL.revokeObjectURL(urlsFotos[sid]);
   urlsFotos[sid] = URL.createObjectURL(blob);
@@ -448,25 +451,32 @@ async function guardarFotoLocal(itemId, blob){
 async function buscarFotoLocal(itemId){
   const sid = String(itemId);
   const db = await bancoFotos();
-  const reg = await new Promise((ok, falha)=>{
-    const req = db.transaction(FOTO_STORE, 'readonly').objectStore(FOTO_STORE).get(sid);
-    req.onsuccess = ()=>ok(req.result || null);
-    req.onerror = ()=>falha(req.error || new Error('Não foi possível ler a foto.'));
-  });
-  db.close();
+  let reg;
+  try{
+    reg = await new Promise((ok, falha)=>{
+      const req = db.transaction(FOTO_STORE, 'readonly').objectStore(FOTO_STORE).get(sid);
+      req.onsuccess = ()=>ok(req.result || null);
+      req.onerror = ()=>falha(req.error || new Error('Não foi possível ler a foto.'));
+    });
+  } finally {
+    db.close();
+  }
   if (!reg){ fotosLocais.delete(sid); salvarIndiceFotos(); }
   return reg && reg.blob ? reg.blob : null;
 }
 async function apagarFotoLocal(itemId){
   const sid = String(itemId);
   const db = await bancoFotos();
-  await new Promise((ok, falha)=>{
-    const tx = db.transaction(FOTO_STORE, 'readwrite');
-    tx.objectStore(FOTO_STORE).delete(sid);
-    tx.oncomplete = ok;
-    tx.onerror = ()=>falha(tx.error || new Error('Não foi possível apagar a foto.'));
-  });
-  db.close();
+  try{
+    await new Promise((ok, falha)=>{
+      const tx = db.transaction(FOTO_STORE, 'readwrite');
+      tx.objectStore(FOTO_STORE).delete(sid);
+      tx.oncomplete = ok;
+      tx.onerror = ()=>falha(tx.error || new Error('Não foi possível apagar a foto.'));
+    });
+  } finally {
+    db.close();
+  }
   fotosLocais.delete(sid); salvarIndiceFotos();
   if (urlsFotos[sid]){ URL.revokeObjectURL(urlsFotos[sid]); delete urlsFotos[sid]; }
 }
@@ -1759,7 +1769,13 @@ function tirarFoto(ix){
       guardarRascunho();
       telaEditor();
       aviso('Foto guardada somente neste aparelho');
-    }catch(e){ aviso('Não consegui ler a foto', true); }
+    }catch(e){
+      // falta de espaço é o motivo mais comum aqui, e merece um aviso próprio
+      const semEspaco = e && (e.name === 'QuotaExceededError' || /quota|space|storage/i.test(e.message||''));
+      aviso(semEspaco
+        ? 'Sem espaço no aparelho para guardar a foto. Apague fotos de orçamentos antigos e tente de novo.'
+        : 'Não consegui ler a foto', true);
+    }
   };
   inp.click();
 }

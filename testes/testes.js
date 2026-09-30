@@ -826,10 +826,24 @@ t('desativar servico nao apaga a linha', () => {
   igual(achou.Ativo, 'false');
 });
 
-t('foto grande e recusada', () => {
+t('enviarFoto nao grava mais no Drive, e explica o porque', () => {
   const a = appPronto();
-  recusa(() => a.chamar('enviarFoto', 'func@oficina.com',
-    { base64: 'A'.repeat(9 * 1024 * 1024) }), 'DADO');
+  // as fotos agora ficam no aparelho; a acao so existe para um app desatualizado
+  // receber uma mensagem clara em vez de voltar a criar link publico em silencio
+  const r = recusa(() => a.chamar('enviarFoto', 'func@oficina.com',
+    { base64: 'QUJD' }), 'FOTO_LOCAL');
+  if (!/Atualize o aplicativo/.test(r.error)) throw new Error('mensagem pouco clara: ' + r.error);
+});
+
+t('limparDados tambem derruba as sessoes', () => {
+  const a = appPronto();
+  a.post({ action: 'pedirCodigo', email: 'func@oficina.com' });
+  const tk = a.post({ action: 'entrarComCodigo', email: 'func@oficina.com',
+                      codigo: codigoDoEmail(a) }).data.token;
+  a.g.limparDados('APAGAR TUDO');
+  igual(a.g.ler('Sessoes').length, 0, 'sessoes:');
+  // ninguem continua logado numa planilha zerada
+  recusa(() => a.post({ action: 'carregar', token: tk }), 'NAO_AUTORIZADO');
 });
 
 t('funcionario nao le o historico', () => {

@@ -298,13 +298,11 @@ body::before{
   pointer-events:none;
   z-index:0;
 }
-/* o conteúdo fica por cima da marca */
-main, header, nav, .folha-fundo, .toast, #barraFila{ position:relative; z-index:1 }
-header{ z-index:20 }
-nav{ z-index:20 }
-.folha-fundo{ z-index:60 }
-.toast{ z-index:80 }
-@media (prefers-reduced-motion:no-preference){ body::before{ transition:opacity .2s } }
+/* O conteúdo fica por cima da marca. Só o <main> precisa disto: header, nav,
+   folha e aviso já têm posição e camada próprias — e mexer nelas aqui quebrava
+   a folha, que é position:fixed e precisa continuar sendo, senão para de cobrir
+   a tela, não fecha ao tocar fora e a seguinte empilha em vez de sobrepor. */
+main{ position:relative; z-index:1 }
 
 /* ações direto na linha do painel */
 .linha-orc{display:flex;align-items:stretch;border-bottom:1px solid var(--line)}
@@ -316,7 +314,7 @@ nav{ z-index:20 }
 
 /* fila de envio */
 .offline{background:var(--tape);color:var(--ink);font-size:12.5px;font-weight:700;
-  text-align:center;padding:7px 16px}
+  text-align:center;padding:7px 16px;position:relative;z-index:1}
 .pill.pendente{background:var(--tape);color:var(--ink)}
 </style>
 </head>
@@ -1655,6 +1653,8 @@ let servBusca = '';
 // Abre a lista de serviços numa folha. Cada toque já põe o item no orçamento;
 // dá para pôr vários seguidos sem fechar.
 async function folhaServicos(){
+  // trava simples: se a lista de serviços já está aberta, não abre outra por cima
+  if (document.querySelector('#svGrade')) return;
   lerCampos();
   servCat = 'Todas'; servBusca = '';
   const antes = JSON.stringify(rascunho.itens);
@@ -2547,7 +2547,7 @@ function telaAjustes(){
     </div>
     <div class="aviso" style="margin-top:14px">Clientes, orçamentos e pagamentos ficam na planilha. As <b>fotos novas ficam somente neste aparelho</b> (${fotosLocais.size}) e não são enviadas ao Drive. Use “Salvar no aparelho” em cada foto para criar uma cópia fora do app.</div>
     ${CLIENT_ID?'':'<div class="aviso" style="margin-top:10px;border-color:var(--debt);color:var(--debt)"><b>Sem login configurado.</b> Preencha CLIENT_ID no index.html e no Apps Script antes de usar de verdade. Veja SETUP.md.</div>'}
-    <p style="text-align:center;color:var(--steel);font-size:12px">versão 11</p>
+    <p style="text-align:center;color:var(--steel);font-size:12px">versão 12</p>
   </div>`;
   pintarBlocoFotos();
 }

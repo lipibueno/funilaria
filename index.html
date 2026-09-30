@@ -1956,6 +1956,8 @@ function telaAjustes(){
     <label for="fApi">Endereço da API (Apps Script)</label>
     <input id="fApi" value="${esc(API)}" placeholder="https://script.google.com/macros/s/…/exec">
     <button class="btn" onclick="salvarApi()">Salvar e conectar</button>
+    <button class="btn sec" onclick="testarConexao()">Testar conexão</button>
+    <div id="diag"></div>
     <button class="btn sec" onclick="sincronizar()">Baixar dados da planilha</button>
     <div class="tot-box">
       <div class="l"><span>Orçamentos ativos</span><b>${dados.orcamentos.filter(o=>String(o.Arquivado)!=='true').length}</b></div>
@@ -1968,6 +1970,61 @@ function telaAjustes(){
     <p style="text-align:center;color:var(--steel);font-size:12px">versão 5</p>
   </div>`;
 }
+// Testa exatamente a URL que está gravada no app, sem depender de login.
+// Assim não há risco de conferir uma implantação e o app usar outra.
+async function testarConexao(){
+  const url = ($('#fApi').value || '').trim();
+  const box = $('#diag');
+  if (!url){ box.innerHTML = `<div class="aviso" style="border-color:var(--debt);color:var(--debt)">Cole o endereço da API primeiro.</div>`; return; }
+  box.innerHTML = `<div class="aviso">Testando…</div>`;
+
+  let d;
+  try{
+    const r = await fetch(url + (url.indexOf('?')>=0 ? '&' : '?') + 'diag=1');
+    d = await r.json();
+  }catch(e){
+    box.innerHTML = `<div class="aviso" style="border-color:var(--debt);color:var(--debt)">
+      <b>Não consegui falar com esse endereço.</b><br>
+      Confira se ele termina em <b>/exec</b> e se a implantação está como "Qualquer pessoa".</div>`;
+    return;
+  }
+
+  if (d.versao === undefined){
+    box.innerHTML = `<div class="aviso" style="border-color:var(--debt);color:var(--debt)">
+      <b>Respondeu, mas não é a versão nova.</b><br>
+      Publique de novo: Implantar › Gerenciar implantações › lápis › Nova versão.</div>`;
+    return;
+  }
+
+  const linha = (rot, valor, bom) =>
+    `<div class="l"><span>${rot}</span><b style="color:${bom?'#7FD6A8':'#FFB4AC'}">${bom?'ok':'falta'}</b></div>`;
+  const externa = String(d.chamadaExterna||'').indexOf('LIBERADA') === 0;
+  const comoDono = String(d.executandoComo||'').indexOf('correto') > 0;
+  const planilha = d.planilha === 'acessivel';
+
+  let h = `<div class="tot-box" style="margin-top:10px">
+    ${linha('Versão publicada', d.versao, String(d.versao)==='5')}
+    ${linha('CLIENT_ID no servidor', '', !!d.clientIdPreenchido)}
+    ${linha('Permissão de validar login', '', externa)}
+    ${linha('Executando como dono', '', comoDono)}
+    ${linha('Acesso à planilha', '', planilha)}
+  </div>`;
+
+  if (d.ok){
+    h += `<div class="quitado">✓ Tudo certo. Pode entrar.</div>`;
+  } else {
+    const oque = [];
+    if (String(d.versao)!=='5') oque.push('A API está rodando uma versão antiga. Cole o <b>Codigo.gs</b> novo e publique <b>Nova versão</b>.');
+    if (!d.clientIdPreenchido) oque.push('O <b>CLIENT_ID</b> não foi preenchido no Codigo.gs.');
+    if (!externa) oque.push('No editor do Apps Script, rode a função <b>autorizar</b>, aceite as permissões e publique <b>Nova versão</b>.');
+    if (!comoDono) oque.push('Na implantação, <b>Executar como</b> precisa ser <b>Eu</b>, não "Usuário que acessa o app".');
+    if (!planilha) oque.push('O script não está conseguindo abrir a planilha.');
+    h += `<div class="aviso" style="border-color:var(--debt);margin-top:10px"><b>Falta resolver:</b><ul style="margin:6px 0 0 18px;padding:0">${
+      oque.map(x=>`<li style="margin-bottom:4px">${x}</li>`).join('')}</ul></div>`;
+  }
+  box.innerHTML = h;
+}
+
 async function salvarApi(){
   API = $('#fApi').value.trim();
   localStorage.setItem('api_url', API);

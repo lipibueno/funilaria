@@ -146,10 +146,77 @@ orçamento repetido.
 colunas que faltarem, sem apagar nem reordenar o que já existe. Isso foi testado com
 uma planilha na estrutura antiga e com dados dentro.
 
-- `Orcamentos`: `Versao`, `Travado`, `CriadoPor`, `AlteradoPor`, `MotivoCancelamento`
+- `Orcamentos`: `Versao`, `Travado`, `CriadoPor`, `AlteradoPor`, `MotivoCancelamento`, `ChaveIdem`
 - `Pagamentos`: `Estorno`, `EstornoDeID`, `LancadoPor`, `LancadoEmMs`, `Motivo`
 - `Servicos`: `Ativo`
 - abas novas: `Usuarios`, `Log`
+
+---
+
+## Como ficou o preenchimento
+
+O objetivo era tirar campo da frente de quem usa.
+
+**A placa vem primeiro.** A tela de orçamento novo abre com o teclado na placa. Ao
+completar os 7 caracteres, se aquele carro já passou pela oficina o app preenche
+sozinho cliente, telefone, veículo, ano e cor, e mostra "✓ Já atendido aqui". Só
+preenche campo vazio — nunca sobrescreve o que foi digitado.
+
+Modelo, ano, cor e data ficaram atrás de **Mais detalhes do carro**, recolhido. Na
+prática, orçamento de carro conhecido sai com um campo preenchido e dois toques.
+
+**Serviço entra no toque.** O campo de digitar com autocomplete saiu. Em lugar dele,
+"＋ Escolher serviços" abre uma folha com os serviços em grade, separados por
+categoria, cada um já com o valor. Um toque põe no orçamento; tocar de novo no mesmo
+aumenta a quantidade. A folha fica aberta para pôr vários seguidos e mostra o total
+correndo no pé. Serviço que não está na lista se cadastra ali mesmo, num formulário
+só, e já entra no orçamento.
+
+**Valor com máscara de centavos.** Digitar `38000` mostra `380,00`; `3800000` mostra
+`38.000,00`. Não existe mais ponto no lugar errado. O telefone também é formatado
+enquanto se digita — mas o app não reformata número que já estava na planilha, porque
+registros antigos podem ter o `55` na frente e seriam truncados.
+
+**O campo não perde o foco.** Antes, cada dígito redesenhava a tela inteira e o cursor
+saía do lugar. Agora só o subtotal daquela linha e a caixa de totais são atualizados.
+
+**Confirmações viraram folhas.** Os `confirm()` e `prompt()` do navegador saíram. No
+lugar entrou uma folha que sobe de baixo, fecha no toque fora ou no Esc, e valida
+antes de fechar — motivo obrigatório não deixa mais confirmar em branco.
+
+---
+
+## Sem internet
+
+A oficina não tem sinal em todo canto, então o app trata os casos de forma diferente,
+de propósito:
+
+| Situação | Sem internet |
+|---|---|
+| Criar orçamento novo | **fica guardado** no aparelho e sobe sozinho depois |
+| Alterar orçamento já salvo | recusado, com aviso claro |
+| Receber ou estornar pagamento | recusado, com aviso claro |
+
+As duas últimas exigem conexão na hora por motivo concreto: alterar depende da `Versao`
+atual da planilha, e pagamento lançado duas vezes é dinheiro errado. O app diz que não
+deu, em vez de fingir que gravou.
+
+O que está na fila aparece no topo do painel como **"no aparelho"**, com uma barra
+amarela e um "enviar agora". O envio acontece sozinho quando a conexão volta e a cada
+login.
+
+**Reenvio não duplica.** Cada orçamento da fila leva uma `ChaveIdem` gerada no
+aparelho. Se o envio for tentado duas vezes — conexão instável, app reaberto no meio —
+o servidor reconhece a chave e devolve o orçamento que já existe em vez de criar outro.
+Isso está coberto por testes, inclusive o caso de o orçamento ter sido editado entre a
+primeira tentativa e o reenvio (a edição é preservada).
+
+Fotos tiradas sem internet ficam no aparelho em base64 e vão para o Drive no reenvio,
+uma a uma. O base64 nunca é gravado na planilha.
+
+**Rascunho não se perde.** O que está sendo preenchido é guardado no aparelho a cada
+alteração. Se o app fechar no meio, no próximo login ele pergunta se quer continuar de
+onde parou. Rascunho com mais de uma semana é descartado.
 
 ---
 
@@ -174,7 +241,7 @@ Apps Script — custa perder a foto dentro do PDF. Me avise se preferir esse lad
 Troque o número em `sw.js`:
 
 ```js
-const CACHE = 'funilaria-v4';   // v5, v6...
+const CACHE = 'funilaria-v5';   // v6, v7...
 ```
 
 A página em si já é buscada da rede primeiro, então a atualização chega sozinha. Trocar
@@ -191,6 +258,6 @@ com um simulador do Apps Script:
 node testes/testes.js
 ```
 
-São 43 casos cobrindo login, papéis, concorrência, travamento após pagamento, estorno,
-cancelamento e limites de valor. Há também `node testes/migra.js`, que sobe uma planilha
+São 47 casos cobrindo login, papéis, concorrência, travamento após pagamento, estorno,
+cancelamento, limites de valor e a idempotência da fila offline. Há também `node testes/migra.js`, que sobe uma planilha
 na estrutura antiga com dados e confere que a migração preserva tudo.

@@ -23,7 +23,7 @@ var PASTA_FOTOS = '';            // ID de uma pasta do Drive; vazio = cria sozin
 
 /* ===================== estrutura da planilha ===================== */
 
-var ESTRUTURA_V = '4';
+var ESTRUTURA_V = '5';
 var ESTRUTURA = {
   Config:     ['Chave','Valor'],
   Usuarios:   ['Email','Nome','Papel','Ativo'],
@@ -31,7 +31,7 @@ var ESTRUTURA = {
   Servicos:   ['ID','Descricao','Categoria','ValorPadrao','Ativo'],
   Orcamentos: ['ID','Numero','Data','ClienteID','ClienteNome','Telefone','Placa','Modelo','Ano','Cor',
                'Status','Total','Pago','Saldo','Arquivado','Obs','AtualizadoEm','Versao','Travado',
-               'CriadoPor','AlteradoPor','MotivoCancelamento'],
+               'CriadoPor','AlteradoPor','MotivoCancelamento','ChaveIdem'],
   Itens:      ['ID','OrcamentoID','Ordem','Descricao','Qtd','Valor','Subtotal','FotoURL'],
   Pagamentos: ['ID','OrcamentoID','Data','Valor','Forma','Obs','Estorno','EstornoDeID',
                'LancadoPor','LancadoEmMs','Motivo'],
@@ -248,9 +248,22 @@ function salvarOrcamento(req, u) {
   var o, antes = null;
 
   if (novo) {
+    // Reenvio da fila offline: se este orcamento ja entrou, devolve o que existe
+    // em vez de criar de novo. Sem isso, cada nova tentativa geraria duplicata.
+    var idem = String(req.chaveIdem || '').trim();
+    if (idem) {
+      var repetido = porChaveIdem(idem);
+      if (repetido) {
+        return {
+          orcamento: repetido, repetido: true,
+          itens: ler('Itens').filter(function (i) { return String(i.OrcamentoID) === String(repetido.ID); }),
+          pagamentos: pagamentosDe(repetido.ID)
+        };
+      }
+    }
     o = {
       ID: novoId('O'), Numero: proximoNumero(), Status: 'Orcamento', Versao: 0,
-      CriadoPor: u.Email, Arquivado: false
+      CriadoPor: u.Email, Arquivado: false, ChaveIdem: idem
     };
   } else {
     antes = buscar('Orcamentos', env.ID);
@@ -267,7 +280,7 @@ function salvarOrcamento(req, u) {
     o = {
       ID: antes.ID, Numero: antes.Numero, Status: antes.Status, Versao: _num(antes.Versao),
       CriadoPor: antes.CriadoPor, Arquivado: antes.Arquivado,
-      MotivoCancelamento: antes.MotivoCancelamento
+      MotivoCancelamento: antes.MotivoCancelamento, ChaveIdem: antes.ChaveIdem
     };
   }
 
@@ -394,6 +407,14 @@ function conferirVersao(o, versao) {
   if (_num(versao) !== _num(o.Versao)) {
     throw erro('CONFLITO', 'Alguem alterou este orcamento antes de voce. Recarregue e refaca a alteracao.');
   }
+}
+
+function porChaveIdem(idem) {
+  var achou = null;
+  ler('Orcamentos').forEach(function (o) {
+    if (o.ChaveIdem && String(o.ChaveIdem) === String(idem)) achou = o;
+  });
+  return achou;
 }
 
 function estaTravado(o) {

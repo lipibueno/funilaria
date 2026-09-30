@@ -180,6 +180,60 @@ t('etapa invalida e recusada', () => {
     { id: o.ID, status: 'Finalizado', versao: o.Versao }), 'ETAPA');
 });
 
+console.log('\n--- fila offline: reenvio nao duplica ---');
+t('mesma chaveIdem reenviada nao cria segundo orcamento', () => {
+  const a = appPronto();
+  const corpo = {
+    orcamento: { ClienteNome: 'Maria', Placa: 'ABC1D23' },
+    itens: [{ Descricao: 'Porta motorista', Qtd: 1, Valor: 380 }],
+    chaveIdem: 'K-TESTE-1'
+  };
+  const r1 = a.chamar('salvarOrcamento', 'func@oficina.com', corpo);
+  if (!r1.ok) throw new Error(r1.error);
+  const r2 = a.chamar('salvarOrcamento', 'func@oficina.com', corpo);   // reenvio
+  if (!r2.ok) throw new Error(r2.error);
+  igual(r2.data.repetido, 'true', 'devia vir marcado como repetido:');
+  igual(r2.data.orcamento.ID, r1.data.orcamento.ID, 'mesmo orcamento:');
+  const todos = a.chamar('carregar', 'dono@oficina.com').data.orcamentos;
+  igual(todos.length, 1, 'quantidade de orcamentos na planilha:');
+  igual(todos[0].Numero, 1, 'nao consumiu outro numero:');
+});
+
+t('reenvio depois de a pessoa ja ter editado nao desfaz a edicao', () => {
+  const a = appPronto();
+  const corpo = { orcamento: { ClienteNome: 'Maria', Placa: 'ABC1D23' },
+                  itens: [{ Descricao: 'x', Qtd: 1, Valor: 380 }], chaveIdem: 'K-TESTE-2' };
+  const o = a.chamar('salvarOrcamento', 'func@oficina.com', corpo).data.orcamento;
+  // editou depois de criado
+  const dep = a.chamar('salvarOrcamento', 'func@oficina.com', {
+    orcamento: { ID: o.ID, Versao: o.Versao, ClienteNome: 'Maria', Placa: 'ABC1D23', Obs: 'combinado' },
+    itens: [{ Descricao: 'x', Qtd: 1, Valor: 500 }] }).data.orcamento;
+  igual(dep.Total, 500);
+  // a fila tenta de novo o envio original
+  const r = a.chamar('salvarOrcamento', 'func@oficina.com', corpo);
+  igual(r.data.repetido, 'true');
+  igual(r.data.orcamento.Total, 500, 'o valor editado tinha que continuar:');
+  igual(r.data.orcamento.Obs, 'combinado');
+});
+
+t('chaves diferentes criam orcamentos diferentes', () => {
+  const a = appPronto();
+  const base = { orcamento: { ClienteNome: 'Maria', Placa: 'ABC1D23' },
+                 itens: [{ Descricao: 'x', Qtd: 1, Valor: 10 }] };
+  a.chamar('salvarOrcamento', 'func@oficina.com', Object.assign({}, base, { chaveIdem: 'K-A' }));
+  a.chamar('salvarOrcamento', 'func@oficina.com', Object.assign({}, base, { chaveIdem: 'K-B' }));
+  igual(a.chamar('carregar', 'dono@oficina.com').data.orcamentos.length, 2);
+});
+
+t('salvar sem chaveIdem continua funcionando', () => {
+  const a = appPronto();
+  const r = a.chamar('salvarOrcamento', 'func@oficina.com', {
+    orcamento: { ClienteNome: 'Maria', Placa: 'ABC1D23' },
+    itens: [{ Descricao: 'x', Qtd: 1, Valor: 10 }] });
+  if (!r.ok) throw new Error(r.error);
+  igual(r.data.repetido, 'undefined');
+});
+
 console.log('\n--- pagamentos ---');
 function ateProntoEntrega(a, quem){
   let o = criarOrc(a, quem);

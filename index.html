@@ -228,6 +228,59 @@ nav button[aria-current="true"] .i{transform:translateY(-1px)}
 .formas{display:flex;flex-wrap:wrap;gap:8px;margin-top:8px}
 .quitado{display:flex;align-items:center;gap:10px;background:#E4F5EC;border:1px solid #9FD8BA;color:#145C3B;border-radius:var(--r);padding:12px;font-weight:700;margin-top:8px}
 .secao{font-size:15px;font-weight:800;margin:22px 0 4px}
+
+/* ============ v5 ============ */
+
+/* folha inferior: substitui confirm/prompt do navegador */
+.folha-fundo{position:fixed;inset:0;z-index:60;background:rgba(20,23,26,.45);
+  display:flex;align-items:flex-end;justify-content:center;animation:apaga .18s ease}
+.folha{background:var(--paper);width:100%;max-width:520px;max-height:88vh;overflow-y:auto;
+  border-radius:16px 16px 0 0;padding:8px 16px calc(env(safe-area-inset-bottom,0px) + 16px);
+  animation:sobe .22s cubic-bezier(.2,.8,.2,1)}
+.folha .pega{width:38px;height:4px;border-radius:2px;background:var(--line);margin:6px auto 12px}
+.folha h2{font-size:18px;font-weight:800;margin:0 0 4px}
+.folha p.exp{margin:0 0 12px;color:var(--steel);font-size:14px}
+.folha label:first-of-type{margin-top:6px}
+@keyframes sobe{from{transform:translateY(100%)}to{transform:translateY(0)}}
+@keyframes apaga{from{opacity:0}to{opacity:1}}
+@media (prefers-reduced-motion:reduce){.folha,.folha-fundo{animation:none}}
+
+/* escolher serviço no toque */
+.cats{display:flex;gap:8px;overflow-x:auto;padding:2px 0 10px;-webkit-overflow-scrolling:touch}
+.grade{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.svc{background:var(--paper);border:1px solid var(--line);border-radius:var(--r);
+  padding:11px 12px;text-align:left;min-height:62px;display:flex;flex-direction:column;justify-content:center}
+.svc:active{border-color:var(--ink);background:var(--primer)}
+.svc b{font-size:14px;font-weight:600;line-height:1.25}
+.svc span{font-size:13px;font-weight:800;color:var(--steel);margin-top:3px}
+.svc.posto{border-color:var(--ok);background:#EDF8F2}
+.svc.posto span{color:var(--ok)}
+.contador{position:sticky;bottom:0;background:var(--paper);padding:10px 0 2px;
+  border-top:1px solid var(--line);margin-top:10px}
+
+/* placa em primeiro lugar */
+.placa-hero input{font-size:26px;font-weight:800;letter-spacing:3px;text-align:center;
+  text-transform:uppercase;padding:14px 12px}
+.placa-hero input::placeholder{letter-spacing:2px;font-weight:600;color:#B6BCC4}
+.achado{display:flex;gap:10px;align-items:center;background:#E4F5EC;border:1px solid #9FD8BA;
+  color:#145C3B;border-radius:var(--r);padding:11px 12px;margin-top:10px;font-size:14px}
+.achado b{font-weight:800}
+details.mais{margin-top:14px;border-top:1px solid var(--line);padding-top:6px}
+details.mais>summary{list-style:none;cursor:pointer;color:var(--steel);font-size:13px;
+  font-weight:700;padding:8px 0;display:flex;justify-content:space-between}
+details.mais>summary::-webkit-details-marker{display:none}
+details.mais>summary::after{content:'▾'}
+details.mais[open]>summary::after{content:'▴'}
+
+/* itens mais enxutos */
+.item .desc{display:flex;justify-content:space-between;align-items:center;gap:8px}
+.item .desc b{font-size:15px;font-weight:600;flex:1;min-width:0}
+.item .sub{font-size:17px;font-weight:800;white-space:nowrap}
+
+/* fila de envio */
+.offline{background:var(--tape);color:var(--ink);font-size:12.5px;font-weight:700;
+  text-align:center;padding:7px 16px}
+.pill.pendente{background:var(--tape);color:var(--ink)}
 </style>
 </head>
 <body>
@@ -334,6 +387,131 @@ function fotoErro(img){
   if (i && !img.dataset.tentou){ img.dataset.tentou = 1; img.src = `https://lh3.googleusercontent.com/d/${i}=w1000`; }
 }
 
+/* ===================== folha inferior ===================== */
+// Substitui confirm/prompt do navegador: em PWA instalado eles ficam feios,
+// e em alguns contextos o prompt simplesmente não abre.
+function folha({ titulo, texto, corpo, botoes, aoAbrir }){
+  return new Promise(resolve=>{
+    fecharSug();
+    const fundo = document.createElement('div');
+    fundo.className = 'folha-fundo';
+    fundo.innerHTML = `<div class="folha" role="dialog" aria-modal="true" aria-label="${esc(titulo||'')}">
+      <div class="pega"></div>
+      ${titulo?`<h2>${esc(titulo)}</h2>`:''}
+      ${texto?`<p class="exp">${esc(texto)}</p>`:''}
+      ${corpo||''}
+      <div id="folhaBotoes"></div>
+    </div>`;
+
+    let respondido = false;
+    const fechar = v =>{
+      if (respondido) return;
+      respondido = true;
+      document.removeEventListener('keydown', aoTeclar);
+      fundo.remove();
+      resolve(v);
+    };
+    const aoTeclar = e =>{ if (e.key === 'Escape') fechar(null); };
+
+    const caixa = fundo.querySelector('#folhaBotoes');
+    (botoes || [{ rot:'Fechar', valor:null, classe:'sec' }]).forEach(b=>{
+      const bt = document.createElement('button');
+      bt.className = 'btn ' + (b.classe || '');
+      bt.textContent = b.rot;
+      bt.onclick = ()=>{
+        // um botão pode validar antes de fechar; devolver undefined cancela o fechamento
+        const v = typeof b.valor === 'function' ? b.valor(fundo) : b.valor;
+        if (v !== undefined) fechar(v);
+      };
+      caixa.appendChild(bt);
+    });
+
+    fundo.addEventListener('click', e=>{ if (e.target === fundo) fechar(null); });
+    document.addEventListener('keydown', aoTeclar);
+    document.body.appendChild(fundo);
+    ligarMascaras(fundo);
+    if (aoAbrir) aoAbrir(fundo);
+    // não puxa o teclado à força em folha de escolha; só quando há campo de texto a preencher
+    const primeiro = fundo.querySelector('input:not(.busca),textarea');
+    if (primeiro) setTimeout(()=>primeiro.focus(), 120);
+  });
+}
+
+const confirmar = (titulo, texto, rotulo, perigo) => folha({
+  titulo, texto,
+  botoes: [ { rot: rotulo || 'Confirmar', valor: true, classe: perigo ? 'tape' : '' },
+            { rot: 'Cancelar', valor: false, classe: 'sec' } ]
+}).then(v => v === true);
+
+// Pergunta um texto. Devolve null se a pessoa desistir.
+const perguntar = (titulo, texto, opc = {}) => folha({
+  titulo, texto,
+  corpo: `<label for="fx">${esc(opc.rotulo || 'Resposta')}</label>
+    <textarea id="fx" rows="${opc.linhas || 2}" placeholder="${esc(opc.dica || '')}">${esc(opc.valor || '')}</textarea>
+    <div id="fxErro" style="color:var(--debt);font-size:13px;margin-top:6px"></div>`,
+  botoes: [
+    { rot: opc.ok || 'Confirmar', classe: opc.perigo ? 'tape' : '', valor: f =>{
+        const v = f.querySelector('#fx').value.trim();
+        if (opc.obrigatorio && !v){
+          f.querySelector('#fxErro').textContent = 'Precisa preencher para continuar.';
+          f.querySelector('#fx').focus();
+          return undefined;   // segura a folha aberta
+        }
+        return v;
+      } },
+    { rot: 'Cancelar', valor: null, classe: 'sec' }
+  ]
+});
+
+/* ===================== máscaras ===================== */
+// Digita 38000 e aparece 380,00 — evita o erro de ponto no lugar errado.
+function mascaraMoeda(el){
+  const aplica = avisar =>{
+    const d = el.value.replace(/\D/g,'').slice(0,11);
+    el.value = d ? (Number(d)/100).toLocaleString('pt-BR',{minimumFractionDigits:2, maximumFractionDigits:2}) : '';
+    // o cursor fica sempre no fim: é o comportamento certo para máscara de centavos
+    const f = el.value.length;
+    try{ el.setSelectionRange(f,f); }catch(e){}
+    // avisa quem acompanha o campo SÓ depois de formatar. Se o modelo lesse o valor
+    // durante a digitação, pegaria o número antes da máscara: digitar 38000 gravava 38.
+    if (avisar && el._aoMudar) el._aoMudar(el.value);
+  };
+  el.setAttribute('inputmode','numeric');
+  el.addEventListener('input', ()=> aplica(true));
+  if (el.value) aplica(false);
+}
+
+function formatarTel(v){
+  const d = String(v||'').replace(/\D/g,'').slice(0,11);
+  if (d.length <= 2) return d;
+  if (d.length <= 6) return `(${d.slice(0,2)}) ${d.slice(2)}`;
+  if (d.length <= 10) return `(${d.slice(0,2)}) ${d.slice(2,6)}-${d.slice(6)}`;
+  return `(${d.slice(0,2)}) ${d.slice(2,7)}-${d.slice(7)}`;
+}
+function mascaraTel(el){
+  // Só formata o que a pessoa digitar. Não mexe no valor que já veio da planilha:
+  // registros antigos podem estar como 5569999999999 (com o 55), e reformatar
+  // truncaria o número na hora de salvar.
+  el.addEventListener('input', ()=>{
+    el.value = formatarTel(el.value);
+    const f = el.value.length;
+    try{ el.setSelectionRange(f,f); }catch(e){}
+  });
+}
+
+function mascaraPlaca(el){
+  el.addEventListener('input', ()=>{
+    el.value = el.value.toUpperCase().replace(/[^A-Z0-9]/g,'').slice(0,7);
+  });
+}
+
+// Liga as máscaras pelo nome da classe, para qualquer trecho recém-inserido no DOM.
+function ligarMascaras(raiz){
+  (raiz || document).querySelectorAll('.moeda:not([data-msk])').forEach(el=>{ el.dataset.msk=1; mascaraMoeda(el); });
+  (raiz || document).querySelectorAll('.tel:not([data-msk])').forEach(el=>{ el.dataset.msk=1; mascaraTel(el); });
+  (raiz || document).querySelectorAll('.placa:not([data-msk])').forEach(el=>{ el.dataset.msk=1; mascaraPlaca(el); });
+}
+
 function aviso(msg, erro){
   document.querySelectorAll('.toast').forEach(t=>t.remove());
   const t = document.createElement('div');
@@ -375,7 +553,11 @@ function receberToken(cred){
 
 async function entrar(){
   await sincronizar();
-  if (usuario) ir('painel');
+  if (!usuario) return;
+  ir('painel');
+  pintarAvisoFila();
+  await esvaziarFila(true);           // manda o que ficou pendente do uso sem internet
+  await ofereceRascunho();            // e retoma um preenchimento interrompido
 }
 
 // Tenta renovar sem incomodar o usuário. Se não der, cai na tela de login.
@@ -426,12 +608,20 @@ async function chamar(action, corpo){
     const e = new Error('Entre com sua conta Google para continuar');
     e.codigo = 'NAO_AUTORIZADO'; throw e;
   }
-  const r = await fetch(API, {
-    method:'POST',
-    headers:{'Content-Type':'text/plain;charset=utf-8'},
-    body: JSON.stringify(Object.assign({action, token}, corpo||{}))
-  });
-  const j = await r.json();
+  let j;
+  try{
+    const r = await fetch(API, {
+      method:'POST',
+      headers:{'Content-Type':'text/plain;charset=utf-8'},
+      body: JSON.stringify(Object.assign({action, token}, corpo||{}))
+    });
+    j = await r.json();
+  }catch(falha){
+    // sem internet, DNS, timeout: marcado para a fila saber que vale tentar depois
+    const e = new Error('Sem conexão com a planilha agora');
+    e.codigo = 'REDE';
+    throw e;
+  }
   if (!j.ok){
     const e = new Error(j.error || 'Falha na API');
     e.codigo = j.codigo || 'ERRO';
@@ -439,6 +629,96 @@ async function chamar(action, corpo){
   }
   return j.data;
 }
+
+/* ===================== fila de envio (sem internet) ===================== */
+// Só orçamento NOVO entra na fila. Alterar um que já existe depende da versão atual
+// da planilha, e pagamento repetido é dinheiro errado — essas duas coisas exigem
+// internet na hora, e o app diz isso em vez de fingir que gravou.
+const semRede = () => navigator.onLine === false;
+const ehFalhaDeRede = e => !e.codigo || e.codigo === 'REDE';
+
+function lerFila(){
+  try{ return JSON.parse(localStorage.getItem('fila')) || []; }catch(e){ return []; }
+}
+function gravarFila(f){
+  try{ localStorage.setItem('fila', JSON.stringify(f)); }
+  catch(e){ aviso('Memória do aparelho cheia: envie os orçamentos pendentes.', true); }
+}
+const totalFila = () => lerFila().length;
+
+function enfileirar(corpo){
+  const f = lerFila();
+  f.push(Object.assign({ chaveIdem: id('K'), criadoEm: Date.now() }, corpo));
+  gravarFila(f);
+  pintarAvisoFila();
+}
+
+// Reenvia o que está pendente. Idempotente: a chaveIdem impede duplicata.
+let enviandoFila = false;
+async function esvaziarFila(silencioso){
+  if (enviandoFila || !API || !usuario) return;
+  let f = lerFila();
+  if (!f.length) return;
+  enviandoFila = true;
+  let enviados = 0, repetidos = 0;
+  try{
+    while (f.length){
+      const item = f[0];
+      try{
+        // as fotos vão primeiro; no aparelho elas estão como base64
+        for (const it of (item.itens || [])){
+          if (it._novaFoto){
+            const fr = await chamar('enviarFoto', { base64: it._novaFoto, mime:'image/jpeg' });
+            it.FotoURL = fr.url;
+            delete it._novaFoto;
+            gravarFila(f);            // se cair a conexão agora, a foto já enviada não sobe duas vezes
+          }
+          if (String(it.FotoURL||'').startsWith('data:')) it.FotoURL = '';
+        }
+        const r = await chamar('salvarOrcamento', {
+          orcamento: item.orcamento, itens: item.itens, chaveIdem: item.chaveIdem });
+        if (r && r.repetido) repetidos++; else enviados++;
+        f.shift();
+        gravarFila(f);
+      }catch(e){
+        if (ehFalhaDeRede(e)) break;                    // ainda sem internet: tenta depois
+        if (e.codigo === 'NAO_AUTORIZADO'){ await tratar(e); break; }
+        // recusado por regra (dado inválido, por ex.): tirar da fila, senão trava para sempre
+        f.shift(); gravarFila(f);
+        aviso('Um orçamento pendente foi recusado: ' + e.message, true);
+      }
+    }
+  } finally {
+    enviandoFila = false;
+    pintarAvisoFila();
+  }
+  if (enviados || repetidos){
+    await sincronizar(true);
+    if (!silencioso || enviados){
+      aviso(enviados
+        ? enviados + ' orçamento(s) enviado(s) para a planilha'
+        : 'Os pendentes já estavam na planilha');
+    }
+    render();
+  }
+}
+
+function pintarAvisoFila(){
+  const n = totalFila();
+  let barra = $('#barraFila');
+  if (!n){ if (barra) barra.remove(); return; }
+  if (!barra){
+    barra = document.createElement('div');
+    barra.id = 'barraFila';
+    barra.className = 'offline';
+    document.querySelector('header').after(barra);
+  }
+  barra.innerHTML = `${n} orçamento(s) esperando internet · <u>enviar agora</u>`;
+  barra.onclick = ()=> esvaziarFila();
+}
+
+window.addEventListener('online', ()=>{ aviso('Conexão de volta'); esvaziarFila(true); });
+window.addEventListener('offline', ()=> aviso('Sem internet. Orçamentos novos ficam guardados no aparelho.', true));
 
 // Trata de forma única os erros que exigem uma reação e não só um aviso.
 async function tratar(e){
@@ -522,14 +802,28 @@ function telaPainel(){
       <button class="btn" onclick="ir('ajustes')">Abrir ajustes</button></div>`;
     return;
   }
+  // orçamentos feitos sem internet, ainda no aparelho
+  const fila = lerFila();
+  const blocoFila = fila.length ? `<div class="wrap"><div class="secao" style="margin-top:0">Esperando internet</div>` +
+    fila.map(q=>{
+      const t = (q.itens||[]).reduce((s,i)=> s + num(i.Qtd)*num(i.Valor), 0);
+      return `<div class="grupo"><div class="orcrow" style="cursor:default">
+        <div><span class="pl">${esc(q.orcamento.Placa||'sem placa')}</span>
+          <span class="md">${esc(q.orcamento.ClienteNome||'')}</span></div>
+        <div class="vl">${moeda(t)}</div>
+        <div><span class="pill pendente">no aparelho</span></div>
+        <div class="st"></div></div></div>`;
+    }).join('') +
+    `<button class="btn sec" onclick="esvaziarFila()">Enviar agora</button></div>` : '';
+
   if (!ativos.length){
-    tela.innerHTML = `<div class="wrap"><div class="vazio">Nenhum orçamento em andamento.<br>Toque em <b>Novo</b> para criar o primeiro.</div></div>`;
+    tela.innerHTML = blocoFila + `<div class="wrap"><div class="vazio">Nenhum orçamento em andamento.<br>Toque em <b>Novo</b> para criar o primeiro.</div></div>`;
     return;
   }
 
   const conta = s => ativos.filter(o=>o.Status===s).length;
   if (filtro!=='Todos' && !conta(filtro)) filtro = 'Todos';
-  let h = '<div class="chips">';
+  let h = blocoFila + '<div class="chips">';
   h += `<button class="chip" aria-pressed="${filtro==='Todos'}" onclick="filtrar('Todos')">Todos<span>${ativos.length}</span></button>`;
   STATUS.forEach(s=>{
     const n = conta(s); if (!n) return;
@@ -580,8 +874,9 @@ function abrir(oid){
 
 function novoRascunho(pref){
   return {
-    orcamento:Object.assign({ ID:'', Numero:'', Data:hoje(), ClienteID:'', ClienteNome:'', Telefone:'', Placa:'', Modelo:'', Ano:'', Cor:'', Status:'Orcamento', Obs:'', Arquivado:false }, pref||{}),
-    itens:[{ ID:id('I'), Descricao:'', Qtd:1, Valor:'', FotoURL:'' }],
+    orcamento:Object.assign({ ID:'', Numero:'', Data:hoje(), ClienteID:'', ClienteNome:'', Telefone:'', Placa:'', Modelo:'', Ano:'', Cor:'', Status:'Orcamento', Obs:'', Arquivado:false, Versao:0 }, pref||{}),
+    // começa vazio: os serviços entram por toque, sem linha em branco para preencher
+    itens:[],
     pagamentos:[]
   };
 }
@@ -633,48 +928,62 @@ function telaEditor(){
   let h = '<div class="wrap">';
   if (!novo) h += blocoEtapas(o, t);
 
-  h += `<div class="secao">Cliente e veículo</div>
+  // A placa vem primeiro: é o que a pessoa tem na mão olhando o carro, e é o que
+  // deixa o app preencher cliente e veículo sozinho quando já passou por aqui.
+  h += `<div class="placa-hero">
+    <label for="fPlaca">${novo?'Placa do carro':'Placa'}</label>
+    <input id="fPlaca" class="placa" value="${esc(o.Placa)}" placeholder="ABC1D23"
+           autocomplete="off" aria-describedby="achado">
+  </div>
+  <div id="achado" aria-live="polite"></div>
+
   <label for="fCli">Cliente</label>
   <div class="sug"><input id="fCli" value="${esc(o.ClienteNome)}" placeholder="nome do cliente" autocomplete="off"></div>
   <label for="fTel">WhatsApp (com DDD)</label>
-  <input id="fTel" value="${esc(o.Telefone)}" inputmode="tel" placeholder="69 99999-9999">
+  <input id="fTel" class="tel" value="${esc(o.Telefone)}" inputmode="tel" placeholder="(69) 99999-9999">
   <div id="veicChips"></div>
-  <div class="grid2">
-    <div><label for="fPlaca">Placa</label><input id="fPlaca" value="${esc(o.Placa)}" style="text-transform:uppercase" placeholder="ABC1D23"></div>
-    <div><label for="fData">Data</label><input id="fData" type="date" value="${esc(String(o.Data||hoje()).slice(0,10))}"></div>
-  </div>
-  <label for="fModelo">Veículo</label>
-  <input id="fModelo" value="${esc(o.Modelo)}" placeholder="Gol, Onix, Hilux…">
-  <div class="grid2">
-    <div><label for="fAno">Ano</label><input id="fAno" value="${esc(o.Ano)}" inputmode="numeric" placeholder="2018"></div>
-    <div><label for="fCor">Cor</label><input id="fCor" value="${esc(o.Cor)}" placeholder="prata"></div>
-  </div>
+
+  <details class="mais" ${(o.Modelo||o.Ano||o.Cor)&&!novo?'open':''}>
+    <summary>Mais detalhes do carro</summary>
+    <label for="fModelo">Veículo</label>
+    <input id="fModelo" value="${esc(o.Modelo)}" placeholder="Gol, Onix, Hilux…">
+    <div class="grid3">
+      <div><label for="fAno">Ano</label><input id="fAno" value="${esc(o.Ano)}" inputmode="numeric" placeholder="2018"></div>
+      <div><label for="fCor">Cor</label><input id="fCor" value="${esc(o.Cor)}" placeholder="prata"></div>
+      <div><label for="fData">Data</label><input id="fData" type="date" value="${esc(String(o.Data||hoje()).slice(0,10))}"></div>
+    </div>
+  </details>
 
   <div class="secao">Serviços</div>`;
 
+  if (!rascunho.itens.length){
+    h += `<div class="vazio">Nenhum serviço ainda.<br>Toque abaixo e escolha da lista.</div>`;
+  }
   rascunho.itens.forEach((it,ix)=>{
-    h += `<div class="item">
-      <div class="top sug">
-        <input value="${esc(it.Descricao)}" placeholder="toque e escolha da lista" data-ix="${ix}"
-               oninput="sugerir(this,${ix})" onfocus="sugerir(this,${ix})" onblur="conferir(this,${ix})" autocomplete="off">
-        <button class="del" onclick="removerItem(${ix})" aria-label="Remover serviço">×</button>
+    h += `<div class="item" data-ix="${ix}">
+      <div class="desc">
+        <b>${esc(it.Descricao||'sem descrição')}</b>
+        <button class="del" onclick="removerItem(${ix})" aria-label="Remover ${esc(it.Descricao||'serviço')}">×</button>
       </div>
       <div class="lin">
-        <input value="${esc(it.Qtd||1)}" inputmode="numeric" aria-label="Quantidade" onchange="setItem(${ix},'Qtd',this.value)">
-        <input value="${esc(it.Valor)}" inputmode="decimal" placeholder="0,00" aria-label="Valor" onchange="setItem(${ix},'Valor',this.value)">
-        <b>${moeda(num(it.Qtd)*num(it.Valor))}</b>
+        <input value="${esc(it.Qtd||1)}" inputmode="numeric" aria-label="Quantidade de ${esc(it.Descricao||'serviço')}"
+               oninput="mudarItem(${ix},'Qtd',this.value)">
+        <input class="moeda" value="${esc(num(it.Valor)?num(it.Valor).toFixed(2).replace('.',','):'')}" placeholder="0,00"
+               aria-label="Valor de ${esc(it.Descricao||'serviço')}">
+        <b class="sub">${moeda(num(it.Qtd)*num(it.Valor))}</b>
       </div>
       ${it.FotoURL?`<img class="fotogrande" src="${esc(fotoSrc(it.FotoURL))}" data-url="${esc(it.FotoURL)}"
-          referrerpolicy="no-referrer" onerror="fotoErro(this)" onclick="fotoAbrir(this.dataset.url)" alt="Foto do serviço">`:''}
+          referrerpolicy="no-referrer" onerror="fotoErro(this)" onclick="fotoAbrir(this.dataset.url)" alt="Foto de ${esc(it.Descricao||'serviço')}">`:''}
       <div class="foto"><button class="fotobtn" onclick="tirarFoto(${ix})">${it.FotoURL?'Trocar foto':'📷 Tirar foto'}</button></div>
     </div>`;
   });
-  h += `<button class="btn sec" onclick="addItem()">Adicionar serviço</button>`;
+  h += `<button class="btn ${rascunho.itens.length?'sec':''}" onclick="folhaServicos()">
+    ${rascunho.itens.length?'Adicionar outro serviço':'＋ Escolher serviços'}</button>`;
 
   h += `<div class="tot-box">
-    <div class="l"><span>Serviços</span><b>${moeda(t.total)}</b></div>
-    <div class="l"><span>Recebido</span><b>${moeda(t.pago)}</b></div>
-    <div class="big"><span>${t.saldo>0?'Falta receber':'Saldo'}</span><b class="${t.saldo>0?'saldo-dev':'saldo-ok'}">${moeda(t.saldo)}</b></div>
+    <div class="l"><span>Serviços</span><b id="totServ">${moeda(t.total)}</b></div>
+    <div class="l"><span>Recebido</span><b id="totPago">${moeda(t.pago)}</b></div>
+    <div class="big"><span id="totRot">${t.saldo>0?'Falta receber':'Saldo'}</span><b id="totSaldo" class="${t.saldo>0?'saldo-dev':'saldo-ok'}">${moeda(t.saldo)}</b></div>
   </div>`;
 
   // pagamento
@@ -700,7 +1009,7 @@ function telaEditor(){
     } else if (pagAberto){
       h += `<div class="pgbox">
         <label for="pgValor" style="margin-top:0">Valor recebido</label>
-        <input id="pgValor" inputmode="decimal" value="${esc(String(t.saldo.toFixed(2)).replace('.',','))}">
+        <input id="pgValor" class="moeda" value="${esc(String(t.saldo.toFixed(2)).replace('.',','))}">
         <label>Forma</label>
         <div class="formas">${FORMAS.map(f=>`<button class="chip" aria-pressed="${pagForma===f}" onclick="escolherForma('${f}')">${FORMA_ROT[f]}</button>`).join('')}</div>
         <button class="btn tape" onclick="confirmarPag()">Confirmar recebimento</button>
@@ -735,8 +1044,19 @@ function telaEditor(){
   }
 
   tela.innerHTML = h + '</div>';
+  ligarMascaras(tela);
+  // o campo de valor avisa o modelo depois da máscara, não durante a digitação
+  tela.querySelectorAll('.item .moeda').forEach(el=>{
+    el._aoMudar = v => mudarItem(+el.closest('.item').dataset.ix, 'Valor', v);
+  });
+  ligarPlaca();
   ligarCliente();
-  if (novo) mostrarVeiculos();
+  mostrarVeiculos();
+  // qualquer digitação no cabeçalho guarda o rascunho, para não perder se fechar o app
+  tela.querySelectorAll('#fCli,#fTel,#fModelo,#fAno,#fCor,#fData,#fObs').forEach(el=>{
+    el.addEventListener('change', ()=>{ lerCampos(); guardarRascunho(); });
+  });
+  if (novo && !o.Placa) setTimeout(()=>{ const p = $('#fPlaca'); if (p) p.focus(); }, 60);
 }
 
 /* --- campos --- */
@@ -746,12 +1066,124 @@ function lerCampos(){
   const nomeNovo = g('fCli');
   if (nomeNovo!==undefined && semAcento(nomeNovo.trim())!==semAcento(String(o.ClienteNome||'').trim())) o.ClienteID = '';
   const map = {ClienteNome:'fCli',Telefone:'fTel',Placa:'fPlaca',Data:'fData',Modelo:'fModelo',Ano:'fAno',Cor:'fCor',Obs:'fObs'};
-  for (const k in map){ const v = g(map[k]); if (v!==undefined) o[k] = k==='Placa' ? v.toUpperCase() : v; }
+  for (const k in map){ const v = g(map[k]); if (v!==undefined) o[k] = k==='Placa' ? soPlaca(v) : v; }
 }
-function setItem(ix,campo,v){ lerCampos(); rascunho.itens[ix][campo]=v; telaEditor(); }
-function addItem(){ lerCampos(); rascunho.itens.push({ID:id('I'),Descricao:'',Qtd:1,Valor:'',FotoURL:''}); telaEditor();
-  const ins = document.querySelectorAll('.item .top input'); const ult = ins[ins.length-1]; if (ult) ult.focus(); }
-function removerItem(ix){ lerCampos(); rascunho.itens.splice(ix,1); if(!rascunho.itens.length) addItem(); else telaEditor(); }
+
+/* ===================== rascunho guardado no aparelho ===================== */
+// Se o app fechar no meio do preenchimento, o que foi digitado volta.
+function guardarRascunho(){
+  try{
+    // só faz sentido para orçamento que ainda não foi salvo; se guardasse a edição
+    // de um já existente, sobrescreveria um rascunho de verdade e não seria retomável
+    if (!rascunho || rascunho.orcamento.ID) return;
+    localStorage.setItem('rascunho', JSON.stringify({ quando: Date.now(), r: rascunho }));
+  }catch(e){}
+}
+function limparRascunho(){ try{ localStorage.removeItem('rascunho'); }catch(e){} }
+
+function rascunhoGuardado(){
+  try{
+    const g = JSON.parse(localStorage.getItem('rascunho'));
+    if (!g || !g.r || !g.r.orcamento) return null;
+    if (Date.now() - g.quando > 7*24*3600*1000) return null;         // mais de uma semana: descarta
+    if (g.r.orcamento.ID) return null;                               // já salvo, não é rascunho
+    const o = g.r.orcamento;
+    const temAlgo = String(o.Placa||'').trim() || String(o.ClienteNome||'').trim() || (g.r.itens||[]).length;
+    return temAlgo ? g.r : null;
+  }catch(e){ return null; }
+}
+
+async function ofereceRascunho(){
+  if (document.querySelector('.folha-fundo')) return false;   // não empilha folhas
+  const r = rascunhoGuardado();
+  if (!r) return false;
+  const o = r.orcamento;
+  const quem = [o.Placa, o.ClienteNome].filter(Boolean).join(' · ')
+    || (r.itens||[]).map(i=>i.Descricao).filter(Boolean).slice(0,2).join(', ')
+    || 'sem identificação';
+  const seguir = await confirmar('Tem um orçamento não salvo',
+    `${quem} — ${(r.itens||[]).length} serviço(s). Quer continuar de onde parou?`, 'Continuar');
+  if (!seguir){ limparRascunho(); return false; }
+  rascunho = r;
+  telaAtual = 'editor';
+  render();
+  return true;
+}
+// Atualiza só o subtotal da linha e a caixa de totais. Redesenhar a tela inteira
+// a cada dígito fazia o campo perder o foco e a posição do cursor no celular.
+function mudarItem(ix, campo, v){
+  if (!rascunho.itens[ix]) return;
+  rascunho.itens[ix][campo] = v;
+  const it = rascunho.itens[ix];
+  const linha = document.querySelector(`.item[data-ix="${ix}"] .sub`);
+  if (linha) linha.textContent = moeda(num(it.Qtd) * num(it.Valor));
+  pintarTotais();
+  guardarRascunho();
+}
+
+function pintarTotais(){
+  const t = totais();
+  const p = (sel, txt)=>{ const el = $(sel); if (el) el.textContent = txt; };
+  p('#totServ', moeda(t.total));
+  p('#totPago', moeda(t.pago));
+  p('#totRot', t.saldo > 0 ? 'Falta receber' : 'Saldo');
+  const s = $('#totSaldo');
+  if (s){ s.textContent = moeda(t.saldo); s.className = t.saldo > 0 ? 'saldo-dev' : 'saldo-ok'; }
+}
+
+async function removerItem(ix){
+  const it = rascunho.itens[ix]; if (!it) return;
+  lerCampos();
+  if (!(await confirmar('Remover serviço', `"${it.Descricao||'sem descrição'}" sai do orçamento.`, 'Remover', true))) return;
+  rascunho.itens.splice(ix,1);
+  guardarRascunho();
+  telaEditor();
+}
+
+/* --- reconhecer o carro pela placa --- */
+const soPlaca = v => String(v||'').toUpperCase().replace(/[^A-Z0-9]/g,'');
+
+// Último orçamento daquela placa, para puxar cliente e dados do carro.
+function historicoDaPlaca(placa){
+  const p = soPlaca(placa);
+  if (p.length < 7) return null;
+  const iguais = dados.orcamentos
+    .filter(o=> soPlaca(o.Placa) === p)
+    .sort((a,b)=> String(b.AtualizadoEm||b.Data||'').localeCompare(String(a.AtualizadoEm||a.Data||'')));
+  return iguais.length ? iguais[0] : null;
+}
+
+function ligarPlaca(){
+  const el = $('#fPlaca'); if (!el) return;
+  const agir = ()=>{
+    const o = rascunho.orcamento;
+    o.Placa = soPlaca(el.value);
+    const ant = historicoDaPlaca(o.Placa);
+    const box = $('#achado');
+    if (!ant || String(ant.ID) === String(o.ID)){ if (box) box.innerHTML = ''; return; }
+
+    // só preenche o que está vazio: nunca sobrescreve o que a pessoa digitou
+    const por = (campo, campoEl)=>{
+      if (String(o[campo]||'').trim()) return;
+      if (!ant[campo]) return;
+      o[campo] = ant[campo];
+      const c = $('#'+campoEl); if (c) c.value = ant[campo];
+    };
+    por('ClienteNome','fCli'); por('Telefone','fTel');
+    por('Modelo','fModelo'); por('Ano','fAno'); por('Cor','fCor');
+    if (!o.ClienteID && ant.ClienteID) o.ClienteID = ant.ClienteID;
+
+    if (box){
+      const desc = [ant.Modelo, ant.Cor, ant.Ano].filter(Boolean).join(' · ');
+      box.innerHTML = `<div class="achado">✓<div>Já atendido aqui${desc?': <b>'+esc(desc)+'</b>':''}
+        ${ant.ClienteNome?'<br>Cliente: <b>'+esc(ant.ClienteNome)+'</b>':''}</div></div>`;
+    }
+    guardarRascunho();
+  };
+  el.addEventListener('input', agir);
+  el.addEventListener('blur', agir);
+  if (el.value) agir();
+}
 
 /* --- serviço só da lista --- */
 const servicosAtivos = () => dados.servicos.filter(s=> String(s.Ativo)!=='false');
@@ -767,63 +1199,97 @@ function filtrarServicos(termo){
   return l.slice(0,10);
 }
 
-function sugerir(input, ix){
-  fecharSug();
-  const termo = input.value;
-  const lista = filtrarServicos(termo);
-  const exato = servicosAtivos().some(s=> semAcento(s.Descricao)===semAcento(termo.trim()));
-  const box = document.createElement('div');
-  box.className = 'sugbox';
-  let h = lista.map((s,k)=>
-    `<button type="button" data-k="${k}"><b>${esc(s.Descricao)}</b><span>${moeda(s.ValorPadrao)}</span></button>`).join('');
-  if (termo.trim() && !exato) h += `<button type="button" class="novo" data-novo="1">＋ Cadastrar “${esc(termo.trim())}” na lista</button>`;
-  if (!h) return;
-  box.innerHTML = h;
-  box.querySelectorAll('button').forEach(b=>{
-    b.addEventListener('pointerdown', ev=> ev.preventDefault());
-    b.addEventListener('mousedown', ev=> ev.preventDefault());
-    b.addEventListener('click', ()=>{
-      if (b.dataset.novo) cadastrarRapido(ix, termo.trim());
-      else escolherServico(ix, lista[+b.dataset.k]);
-    });
-  });
-  input.closest('.sug').appendChild(box);
-}
 function fecharSug(){ document.querySelectorAll('.sugbox').forEach(b=>b.remove()); }
 document.addEventListener('click', e=>{ if (!e.target.closest('.sug')) fecharSug(); });
 
-function escolherServico(ix, s){
+/* --- escolher serviço no toque --- */
+let servCat = 'Todas';
+let servBusca = '';
+
+// Abre a lista de serviços numa folha. Cada toque já põe o item no orçamento;
+// dá para pôr vários seguidos sem fechar.
+async function folhaServicos(){
   lerCampos();
-  rascunho.itens[ix].Descricao = s.Descricao;
-  rascunho.itens[ix].Valor = s.ValorPadrao;
-  fecharSug(); telaEditor();
-}
-
-// ao sair do campo, só fica o que foi escolhido da lista
-function conferir(input, ix){
-  setTimeout(()=>{
-    if (!document.body.contains(input) || document.activeElement===input) return;
-    const certo = rascunho.itens[ix] ? (rascunho.itens[ix].Descricao||'') : '';
-    if (input.value !== certo){
-      if (input.value.trim()) aviso('Escolha um serviço da lista ou toque em “Cadastrar” para criar um novo.', true);
-      input.value = certo;
+  servCat = 'Todas'; servBusca = '';
+  const antes = rascunho.itens.length;
+  await folha({
+    titulo: 'Adicionar serviço',
+    corpo: `<input id="svBusca" class="busca" placeholder="buscar serviço" autocomplete="off" style="margin-bottom:10px">
+      <div class="cats" id="svCats"></div>
+      <div class="grade" id="svGrade"></div>
+      <div class="contador" id="svRodape"></div>`,
+    botoes: [{ rot:'Pronto', valor:true }],
+    aoAbrir: el =>{
+      const busca = el.querySelector('#svBusca');
+      busca.oninput = ()=>{ servBusca = busca.value; pintarServicos(el); };
+      pintarServicos(el);
     }
-    fecharSug();
-  }, 250);
+  });
+  if (rascunho.itens.length > antes) aviso((rascunho.itens.length - antes) + ' serviço(s) no orçamento');
+  telaEditor();
 }
 
-async function cadastrarRapido(ix, desc){
-  fecharSug();
-  const v = prompt(`Valor padrão de "${desc}":`, '');
-  if (v===null) return;
-  const cat = prompt('Categoria (Funilaria, Pintura, Peça, Acabamento…):', 'Funilaria');
-  if (cat===null) return;
+function listaParaGrade(){
+  const t = semAcento(servBusca.trim());
+  let l = servicosAtivos().filter(s=> servCat === 'Todas' || String(s.Categoria||'Outros') === servCat);
+  if (t) l = l.filter(s=> semAcento(s.Descricao).includes(t));
+  return l.sort((a,b)=> String(a.Descricao).localeCompare(String(b.Descricao)));
+}
+
+function pintarServicos(el){
+  const cats = ['Todas', ...new Set(servicosAtivos().map(s=> String(s.Categoria||'Outros')))];
+  el.querySelector('#svCats').innerHTML = cats.map(c=>
+    `<button class="chip" aria-pressed="${servCat===c}" data-cat="${escJs(c)}">${esc(c)}</button>`).join('');
+  el.querySelectorAll('#svCats .chip').forEach(b=> b.onclick = ()=>{
+    servCat = b.dataset.cat; pintarServicos(el);
+  });
+
+  const lista = listaParaGrade();
+  const postos = {};
+  rascunho.itens.forEach(i=>{
+    if (i.Descricao) postos[semAcento(i.Descricao)] = (postos[semAcento(i.Descricao)]||0) + (num(i.Qtd)||1);
+  });
+
+  el.querySelector('#svGrade').innerHTML = lista.length
+    ? lista.map((s,k)=>{
+        const n = postos[semAcento(s.Descricao)] || 0;
+        return `<button class="svc ${n?'posto':''}" data-k="${k}">
+          <b>${esc(s.Descricao)}</b><span>${n?'✓ '+n+' · ':''}${moeda(s.ValorPadrao)}</span></button>`;
+      }).join('')
+    : `<div class="vazio" style="grid-column:1/3">Nenhum serviço com esse nome.</div>`;
+
+  el.querySelectorAll('#svGrade .svc').forEach(b=> b.onclick = ()=>{
+    porServico(lista[+b.dataset.k]);
+    pintarServicos(el);
+  });
+
+  const t = rascunho.itens.reduce((s,i)=> s + num(i.Qtd)*num(i.Valor), 0);
+  el.querySelector('#svRodape').innerHTML =
+    `<div style="display:flex;justify-content:space-between;align-items:center;font-size:14px">
+      <span style="color:var(--steel)">${rascunho.itens.length} no orçamento</span><b>${moeda(t)}</b></div>
+    <button class="btn sec" id="svNovo" style="margin-top:8px">＋ Cadastrar serviço que não está na lista</button>`;
+  el.querySelector('#svNovo').onclick = ()=> cadastrarEUsar(el);
+}
+
+// Se o serviço já está no orçamento, só aumenta a quantidade.
+function porServico(s){
+  if (!s) return;
+  const ja = rascunho.itens.find(i=> semAcento(i.Descricao) === semAcento(s.Descricao));
+  if (ja) ja.Qtd = (num(ja.Qtd) || 1) + 1;
+  else rascunho.itens.push({ ID:id('I'), Descricao:s.Descricao, Qtd:1, Valor:s.ValorPadrao, FotoURL:'' });
+  guardarRascunho();
+}
+
+async function cadastrarEUsar(el){
+  const r = await formServico({ Descricao: servBusca.trim(), Categoria:'Funilaria', ValorPadrao:'' });
+  if (!r) return;
   try{
-    const s = await chamar('salvarServico', { servico:{ID:'', Descricao:desc, Categoria:cat, ValorPadrao:num(v)} });
+    const s = await chamar('salvarServico', { servico:{ ID:'', Descricao:r.Descricao, Categoria:r.Categoria, ValorPadrao:r.ValorPadrao } });
     dados.servicos.push(s); salvarCache();
-    escolherServico(ix, s);
-    aviso('Serviço cadastrado na lista');
+    porServico(s);
+    aviso('Serviço cadastrado e incluído');
   }catch(e){ await tratar(e); }
+  if (document.body.contains(el)) pintarServicos(el);
 }
 
 function ligarCliente(){
@@ -898,8 +1364,26 @@ async function salvarTudo(msg){
   let motivo = '';
   if (o.ID && travadoLocal(o)){
     if (!ehDono()){ aviso('Este orçamento está pago e fechado. Só o dono pode alterar.', true); return false; }
-    motivo = (prompt('Este orçamento já está pago. Por que a alteração?') || '').trim();
-    if (!motivo){ aviso('Alteração cancelada: sem motivo informado', true); return false; }
+    motivo = await perguntar('Orçamento já pago',
+      'Ele está fechado. A alteração fica registrada no histórico com o seu nome.',
+      { rotulo:'Motivo da alteração', dica:'ex.: cliente pediu peça extra', obrigatorio:true, ok:'Alterar', perigo:true });
+    if (!motivo){ aviso('Alteração cancelada', true); return false; }
+  }
+
+  const paraEnviar = () => itens.map(i=>
+    ({ID:i.ID, Descricao:i.Descricao, Qtd:num(i.Qtd)||1, Valor:num(i.Valor), FotoURL:i.FotoURL||'', _novaFoto:i._novaFoto||''}));
+
+  // Sem internet: orçamento novo fica guardado; alteração de um que já existe, não.
+  if (semRede()){
+    if (o.ID){
+      aviso('Sem internet. Para alterar um orçamento já salvo é preciso estar conectado.', true);
+      return false;
+    }
+    enfileirar({ orcamento: Object.assign({}, o), itens: paraEnviar() });
+    limparRascunho();
+    aviso('Sem internet. Orçamento guardado e será enviado sozinho.');
+    ir('painel');
+    return false;   // não seguiu para pagamento/etapa: ainda não tem ID da planilha
   }
 
   ocupado = true;
@@ -908,23 +1392,39 @@ async function salvarTudo(msg){
     for (const it of itens){
       if (it._novaFoto){
         aviso('Enviando foto…');
-        const r = await chamar('enviarFoto', { base64: it._novaFoto, mime:'image/jpeg', nome:'orc-'+(o.Numero||'novo')+'-'+Date.now()+'.jpg' });
+        const r = await chamar('enviarFoto', { base64: it._novaFoto, mime:'image/jpeg' });
         it.FotoURL = r.url; delete it._novaFoto;
       }
     }
     // Pagamentos não vão junto: eles têm ações próprias, que só somam lançamentos.
     const r = await chamar('salvarOrcamento', {
       orcamento: Object.assign({}, o, { Versao: o.Versao }),
-      itens: itens.map(i=>({ID:i.ID,Descricao:i.Descricao,Qtd:num(i.Qtd)||1,Valor:num(i.Valor),FotoURL:i.FotoURL||''})),
+      itens: paraEnviar().map(i=>{
+        delete i._novaFoto;
+        if (String(i.FotoURL||'').startsWith('data:')) i.FotoURL = '';   // nunca gravar base64 na planilha
+        return i;
+      }),
       motivo: motivo || ''
     });
     rascunho.orcamento = r.orcamento;
     rascunho.itens = r.itens;
     rascunho.pagamentos = r.pagamentos;
+    limparRascunho();
     sincronizar(true);
     if (msg) aviso(msg);
     return true;
-  }catch(e){ await tratar(e); return false; }
+  }catch(e){
+    // caiu a conexão no meio do salvamento de um orçamento novo: não perde o trabalho
+    if (e.codigo === 'REDE' && !o.ID){
+      enfileirar({ orcamento: Object.assign({}, o), itens: paraEnviar() });
+      limparRascunho();
+      aviso('Conexão caiu. Orçamento guardado e será enviado sozinho.');
+      ir('painel');
+      return false;
+    }
+    await tratar(e);
+    return false;
+  }
   finally{ ocupado = false; }
 }
 
@@ -947,7 +1447,8 @@ async function voltarEtapa(){
   const ant = ANTERIOR[o.Status];
   if (!ant) return;
   if (travadoLocal(o) && !ehDono()){ aviso('Este orçamento está pago e fechado. Só o dono pode reabrir.', true); return; }
-  if (!confirm('Voltar para "' + ROTULO[ant] + '"?')) return;
+  if (!(await confirmar('Voltar uma etapa',
+        `O orçamento volta para "${ROTULO[ant]}".`, 'Voltar'))) return;
   try{
     const r = await chamar('mudarStatus', { id: o.ID, status: ant, versao: o.Versao });
     rascunho.orcamento = r; sincronizar(true); telaEditor();
@@ -997,9 +1498,12 @@ async function estornarPag(ix){
   }
   let motivo = '';
   if (!naJanela){
-    motivo = (prompt(`Estornar ${moeda(p.Valor)}. Qual o motivo?`) || '').trim();
-    if (!motivo){ aviso('Estorno cancelado: sem motivo informado', true); return; }
-  } else if (!confirm(`Estornar o lançamento de ${moeda(p.Valor)}?`)) return;
+    motivo = await perguntar(`Estornar ${moeda(p.Valor)}`,
+      'O lançamento original continua na planilha. O estorno entra como valor negativo.',
+      { rotulo:'Motivo do estorno', dica:'ex.: pix caiu duplicado', obrigatorio:true, ok:'Estornar', perigo:true });
+    if (!motivo){ aviso('Estorno cancelado', true); return; }
+  } else if (!(await confirmar(`Estornar ${moeda(p.Valor)}?`,
+      'Dá para corrigir sem motivo porque foi você que lançou, há menos de 15 minutos.', 'Estornar', true))) return;
 
   ocupado = true;
   try{
@@ -1026,8 +1530,10 @@ async function cancelarOrc(){
   if (num(o.Pago) !== 0){
     aviso('Este orçamento tem pagamento lançado. Estorne os pagamentos antes de cancelar.', true); return;
   }
-  const motivo = (prompt('Cancelar o orçamento nº '+o.Numero+'. Qual o motivo?') || '').trim();
-  if (!motivo){ aviso('Cancelamento abortado: sem motivo informado', true); return; }
+  const motivo = await perguntar(`Cancelar o orçamento nº ${o.Numero}`,
+    'Ele sai do painel mas continua na planilha, marcado como cancelado.',
+    { rotulo:'Motivo do cancelamento', dica:'ex.: cliente desistiu', obrigatorio:true, ok:'Cancelar orçamento', perigo:true });
+  if (!motivo){ aviso('Cancelamento abortado', true); return; }
   try{
     await chamar('cancelarOrcamento', { id: o.ID, motivo, versao: o.Versao });
     await sincronizar(true); aviso('Orçamento cancelado'); ir('painel');
@@ -1343,7 +1849,7 @@ function telaUsuarios(){
 async function liberarUsuario(ativo){
   const email = ($('#uEmail').value||'').trim().toLowerCase();
   if (!email || email.indexOf('@')<0){ aviso('Informe um e-mail válido', true); return; }
-  if (!ativo && !confirm('Bloquear o acesso de '+email+'?')) return;
+  if (!ativo && !(await confirmar('Bloquear acesso', email + ' deixa de conseguir entrar no app.', 'Bloquear', true))) return;
   try{
     await chamar('salvarUsuario', { email, nome: $('#uNome').value||'', papel: $('#uPapel').value, ativo });
     aviso(ativo ? 'Acesso liberado para '+email : 'Acesso bloqueado');
@@ -1394,20 +1900,50 @@ function telaServicos(){
 }
 
 async function desativarServico(sid, desc){
-  if (!confirm(`Tirar "${desc}" da lista de serviços?`)) return;
+  if (!(await confirmar(`Tirar "${desc}" da lista?`,
+      'Ele para de aparecer em orçamentos novos, mas continua nos antigos.', 'Tirar da lista', true))) return;
   try{
     await chamar('desativarServico', { id: sid });
     await sincronizar(true); aviso('Serviço tirado da lista'); telaServicos();
   }catch(e){ await tratar(e); }
 }
 
+// Categorias já usadas na lista, para não digitar de novo.
+function categorias(){
+  const c = new Set(servicosAtivos().map(s=> String(s.Categoria||'').trim()).filter(Boolean));
+  ['Funilaria','Pintura','Peça','Acabamento'].forEach(x=> c.add(x));
+  return [...c].sort();
+}
+
+// Uma folha só, no lugar dos três prompts em sequência.
+function formServico(s){
+  const cats = categorias();
+  return folha({
+    titulo: s.ID ? 'Editar serviço' : 'Novo serviço',
+    corpo: `<label for="sDesc">Descrição</label>
+      <input id="sDesc" value="${esc(s.Descricao||'')}" placeholder="ex.: Porta motorista" autocomplete="off">
+      <label for="sValor">Valor padrão</label>
+      <input id="sValor" class="moeda" inputmode="numeric" value="${esc(s.ValorPadrao? num(s.ValorPadrao).toFixed(2).replace('.',',') :'')}" placeholder="0,00">
+      <label for="sCat">Categoria</label>
+      <select id="sCat">${cats.map(c=>`<option ${semAcento(c)===semAcento(s.Categoria||'Funilaria')?'selected':''}>${esc(c)}</option>`).join('')}</select>
+      <div id="sErro" style="color:var(--debt);font-size:13px;margin-top:6px"></div>`,
+    botoes: [
+      { rot: 'Salvar', valor: f=>{
+          const d = f.querySelector('#sDesc').value.trim();
+          if (!d){ f.querySelector('#sErro').textContent = 'Informe a descrição.'; return undefined; }
+          return { Descricao: d, ValorPadrao: num(f.querySelector('#sValor').value), Categoria: f.querySelector('#sCat').value };
+        } },
+      { rot: 'Cancelar', valor: null, classe: 'sec' }
+    ]
+  });
+}
+
 async function editarServico(sid){
   const s = dados.servicos.find(x=>String(x.ID)===String(sid)) || {ID:'',Descricao:'',Categoria:'Funilaria',ValorPadrao:''};
-  const desc = prompt('Descrição do serviço:', s.Descricao); if (desc===null || !desc.trim()) return;
-  const valor = prompt('Valor padrão (só números):', s.ValorPadrao); if (valor===null) return;
-  const cat = prompt('Categoria:', s.Categoria||'Funilaria'); if (cat===null) return;
+  const r = await formServico(s);
+  if (!r) return;
   try{
-    await chamar('salvarServico', { servico:{ID:s.ID, Descricao:desc.trim(), Categoria:cat, ValorPadrao:num(valor)} });
+    await chamar('salvarServico', { servico:{ID:s.ID, Descricao:r.Descricao, Categoria:r.Categoria, ValorPadrao:r.ValorPadrao} });
     await sincronizar(true); aviso('Serviço salvo'); telaServicos();
   }catch(e){ await tratar(e); }
 }
@@ -1429,7 +1965,7 @@ function telaAjustes(){
     </div>
     <div class="aviso" style="margin-top:14px">Os dados ficam na sua planilha do Google. O app guarda uma cópia no aparelho para abrir mais rápido, e ela é apagada quando você sai da conta.</div>
     ${CLIENT_ID?'':'<div class="aviso" style="margin-top:10px;border-color:var(--debt);color:var(--debt)"><b>Sem login configurado.</b> Preencha CLIENT_ID no index.html e no Apps Script antes de usar de verdade. Veja SETUP.md.</div>'}
-    <p style="text-align:center;color:var(--steel);font-size:12px">versão 4</p>
+    <p style="text-align:center;color:var(--steel);font-size:12px">versão 5</p>
   </div>`;
 }
 async function salvarApi(){
@@ -1458,6 +1994,7 @@ if (CLIENT_ID){
   render();
   if (API) sincronizar(true).then(render);
 }
+pintarAvisoFila();
 if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(()=>{});
 </script>
 </body>

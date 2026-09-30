@@ -18,8 +18,6 @@
 var CLIENT_ID = '415802568647-spdi71hljj8a8778n5a811ukb7hco3ns.apps.googleusercontent.com';
 var JANELA_CORRECAO_MIN = 15;    // minutos para corrigir o proprio lancamento sem ser dono
 var MESES_PADRAO = 12;           // quanto historico o app baixa por padrao
-var MAX_FOTO_MB = 5;
-var PASTA_FOTOS = '';            // ID de uma pasta do Drive; vazio = cria sozinho
 
 /* ===================== estrutura da planilha ===================== */
 
@@ -89,8 +87,6 @@ function autorizar() {
   linhas.push('- chamada externa (validacao do login): HTTP ' + r.getResponseCode() +
               ' (400 aqui e o esperado)');
 
-  linhas.push('- pasta de fotos: ' + pastaFotos().getName());
-
   var dono = donoDaPlanilha();
   linhas.push('- conta do dono: ' + (dono || 'NAO IDENTIFICADA'));
 
@@ -126,7 +122,7 @@ function autorizar() {
  * troque a linha abaixo por CONFIRMA = 'APAGAR TUDO' e rode a funcao.
  * Depois volte a linha como estava, para ninguem rodar sem querer.
  *
- * Apaga: orcamentos, itens, pagamentos, clientes e o historico.
+ * Apaga: orcamentos, itens, pagamentos, clientes, sessoes e o historico.
  * Mantem: a lista de servicos, os dados da oficina (Config) e quem tem acesso.
  * Para zerar tambem essas, passe zerarTudo = true.
  */
@@ -142,7 +138,7 @@ function limparDados(confirmacao, tambemCadastros) {
   }
 
   garantirEstrutura();
-  var abas = ['Orcamentos', 'Itens', 'Pagamentos', 'Clientes', 'Log'];
+  var abas = ['Orcamentos', 'Itens', 'Pagamentos', 'Clientes', 'Sessoes', 'Log'];
   if (zerarTudo) abas = abas.concat(['Servicos', 'Usuarios']);
 
   var apagadas = [];
@@ -172,7 +168,7 @@ function limparDados(confirmacao, tambemCadastros) {
 
   var msg = 'Planilha zerada.\n- ' + apagadas.join('\n- ') +
             '\n- proximo_numero: 1' +
-            '\n\nAgora rode autorizar() para se cadastrar como dono de novo.' +
+            (zerarTudo ? '\n\nAgora rode autorizar() para se cadastrar como dono de novo.' : '') +
             '\nE volte CONFIRMA para vazio no codigo.';
   Logger.log(msg);
   return msg;
@@ -953,21 +949,9 @@ function desativarServico(req, u) {
 /* ===================== fotos ===================== */
 
 function enviarFoto(req, u) {
-  var base64 = String(req.base64 || '');
-  if (!base64) throw erro('DADO', 'Foto vazia');
-  if (base64.length * 3 / 4 > MAX_FOTO_MB * 1024 * 1024) {
-    throw erro('DADO', 'Foto acima de ' + MAX_FOTO_MB + ' MB');
-  }
-  var mime = req.mime === 'image/png' ? 'image/png' : 'image/jpeg';
-  var ext = mime === 'image/png' ? '.png' : '.jpg';
-  var nome = 'orc-' + novoId('F') + ext;   // nome gerado aqui, nunca o que o app mandou
-
-  var arq = pastaFotos().createFile(Utilities.newBlob(Utilities.base64Decode(base64), mime, nome));
-  // ATENCAO: link publico. Necessario para a foto abrir no app e no PDF.
-  // Veja a nota sobre isso em SETUP.md.
-  arq.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
-  registrar(u.Email, 'foto', 'Drive', arq.getId(), '', nome, '');
-  return { url: 'https://drive.google.com/thumbnail?id=' + arq.getId() + '&sz=w1000', id: arq.getId() };
+  // Mantida apenas para que uma versão antiga do app receba uma explicação clara.
+  // A versão atual guarda fotos exclusivamente no aparelho e nunca chama esta ação.
+  throw erro('FOTO_LOCAL', 'Atualize o aplicativo. As fotos agora ficam somente no aparelho.');
 }
 
 // Devolve a foto em base64 para o app montar o PDF.
@@ -995,17 +979,6 @@ function baixarFoto(req, u) {
     mime: blob.getContentType() || 'image/jpeg',
     base64: Utilities.base64Encode(bytes)
   };
-}
-
-function pastaFotos() {
-  if (PASTA_FOTOS) return DriveApp.getFolderById(PASTA_FOTOS);
-  var raiz = pastaPorNome(DriveApp, 'Fotos Orcamentos');
-  return pastaPorNome(raiz, String(new Date().getFullYear()));
-}
-
-function pastaPorNome(pai, nome) {
-  var it = pai.getFoldersByName(nome);
-  return it.hasNext() ? it.next() : pai.createFolder(nome);
 }
 
 /* ===================== planilha ===================== */

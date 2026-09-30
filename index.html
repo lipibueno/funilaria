@@ -2515,6 +2515,7 @@ function telaAjustes(){
     <input id="fApi" value="${esc(API)}" placeholder="https://script.google.com/macros/s/…/exec">
     <button class="btn" onclick="salvarApi()">Salvar e conectar</button>
     <button class="btn sec" onclick="testarConexao()">Testar conexão</button>
+    <div id="blocoFotos"></div>
     <div id="diag"></div>
     <button class="btn sec" onclick="sincronizar()">Baixar dados da planilha</button>
     <div class="tot-box">
@@ -2525,8 +2526,9 @@ function telaAjustes(){
     </div>
     <div class="aviso" style="margin-top:14px">Clientes, orçamentos e pagamentos ficam na planilha. As <b>fotos novas ficam somente neste aparelho</b> (${fotosLocais.size}) e não são enviadas ao Drive. Use “Salvar no aparelho” em cada foto para criar uma cópia fora do app.</div>
     ${CLIENT_ID?'':'<div class="aviso" style="margin-top:10px;border-color:var(--debt);color:var(--debt)"><b>Sem login configurado.</b> Preencha CLIENT_ID no index.html e no Apps Script antes de usar de verdade. Veja SETUP.md.</div>'}
-    <p style="text-align:center;color:var(--steel);font-size:12px">versão 9</p>
+    <p style="text-align:center;color:var(--steel);font-size:12px">versão 10</p>
   </div>`;
+  pintarBlocoFotos();
 }
 // Testa exatamente a URL que está gravada no app, sem depender de login.
 // Assim não há risco de conferir uma implantação e o app usar outra.
@@ -2581,6 +2583,63 @@ async function testarConexao(){
       oque.map(x=>`<li style="margin-bottom:4px">${x}</li>`).join('')}</ul></div>`;
   }
   box.innerHTML = h;
+}
+
+/* --- cópia de segurança das fotos ---
+   As fotos só existem neste aparelho. Antes de desinstalar o app ou de limpar os
+   dados do site, elas precisam sair daqui, senão somem sem ter de onde recuperar. */
+function pintarBlocoFotos(){
+  const box = $('#blocoFotos'); if (!box) return;
+  const n = fotosLocais.size;
+  if (!n){
+    box.innerHTML = `<div class="aviso" style="margin-top:14px">Nenhuma foto guardada neste aparelho.</div>`;
+    return;
+  }
+  box.innerHTML = `<div class="tot-box" style="margin-top:14px">
+      <div class="l"><span>Fotos guardadas neste aparelho</span><b>${n}</b></div>
+    </div>
+    <div class="aviso" style="margin-top:10px;border-color:var(--debt)">
+      <b>As fotos só existem aqui.</b> Não estão na planilha nem no Drive.
+      Desinstalar o app ou usar "Limpar e redefinir" no navegador apaga todas.
+      Salve uma cópia antes de fazer qualquer uma das duas coisas.
+    </div>
+    <button class="btn tape" onclick="salvarTodasAsFotos()">Salvar as ${n} fotos no celular</button>`;
+}
+
+// Descreve a foto pelo orçamento a que pertence, para o arquivo sair com nome útil.
+function descricaoDaFoto(itemId){
+  const it = dados.itens.find(x=>String(x.ID)===String(itemId));
+  if (!it) return 'foto';
+  const o = dados.orcamentos.find(x=>String(x.ID)===String(it.OrcamentoID)) || {};
+  return [o.Placa, o.Numero ? 'n'+o.Numero : '', it.Descricao].filter(Boolean).join(' ');
+}
+
+async function salvarTodasAsFotos(){
+  const ids = [...fotosLocais];
+  if (!ids.length) return;
+  const ok = await confirmar('Salvar as fotos',
+    `Vão ser baixadas ${ids.length} imagens para a pasta de downloads. ` +
+    `O navegador pode pedir permissão para baixar vários arquivos — aceite.`, 'Salvar');
+  if (!ok) return;
+
+  let salvas = 0, perdidas = 0;
+  for (const id of ids){
+    try{
+      const blob = await buscarFotoLocal(id);
+      if (!blob){ perdidas++; continue; }
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url; a.download = nomeArquivoFoto(descricaoDaFoto(id)); a.style.display='none';
+      document.body.appendChild(a); a.click(); a.remove();
+      setTimeout(()=>URL.revokeObjectURL(url), 30000);
+      salvas++;
+      aviso(`Salvando ${salvas} de ${ids.length}…`);
+      await new Promise(r=>setTimeout(r, 400));   // sem pausa o navegador descarta os downloads seguintes
+    }catch(e){ perdidas++; }
+  }
+  aviso(perdidas
+    ? `${salvas} foto(s) salva(s). ${perdidas} não foram encontradas neste aparelho.`
+    : `${salvas} foto(s) salva(s) na pasta de downloads.`);
 }
 
 async function salvarApi(){

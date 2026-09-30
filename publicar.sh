@@ -22,6 +22,15 @@ node testes/migra.js   >/dev/null || { echo "FALHOU no teste de migracao. Nada f
 echo "   ok"
 
 echo "== 2/4  conferencias =="
+# os dois numeros de versao precisam bater, senao a tela mostra um e o cache usa outro
+APP_V=$(grep -o ">versão [0-9]*<" index.html | grep -o "[0-9]*" | head -1)
+SW_V=$(grep -o "funilaria-v[0-9]*" sw.js | grep -o "[0-9]*" | head -1)
+if [ "$APP_V" != "$SW_V" ]; then
+  echo "   PAROU: a tela de Ajustes diz versao $APP_V e o cache do sw.js diz v$SW_V."
+  echo "   Deixe os dois com o mesmo numero antes de publicar."
+  exit 1
+fi
+echo "   versao $APP_V nos dois lugares"
 # o numero do cache precisa mudar a cada publicacao, senao o celular fica na versao velha
 if git diff --quiet HEAD -- sw.js && ! git diff --quiet HEAD -- index.html; then
   echo "   AVISO: index.html mudou mas sw.js nao."

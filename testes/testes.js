@@ -107,6 +107,56 @@ t('e-mail estranho nao entra nem no primeiro acesso', () => {
   recusa(() => a.chamar('carregar', 'invasor@gmail.com'), 'NAO_AUTORIZADO');
 });
 
+t('dono e identificado pelo Drive quando Session falha', () => {
+  const a = novoApp();
+  // reproduz a conta em que Session.getEffectiveUser() nao funciona
+  a.g.Session.getEffectiveUser = () => { throw new Error('sem permissao'); };
+  const r = a.chamar('carregar', 'dono@oficina.com');
+  if (!r.ok) throw new Error(r.error);
+  igual(r.data.usuario.papel, 'dono');
+});
+
+t('sem Drive e sem Session, ninguem vira dono sozinho', () => {
+  const a = novoApp();
+  a.g.Session.getEffectiveUser = () => { throw new Error('sem permissao'); };
+  a.g.__driveDono = null;
+  recusa(() => a.chamar('carregar', 'dono@oficina.com'), 'NAO_AUTORIZADO');
+});
+
+t('autorizar cadastra o dono na aba Usuarios', () => {
+  const a = novoApp();
+  a.g.Session.getEffectiveUser = () => { throw new Error('sem permissao'); };
+  const saida = a.g.autorizar();
+  if (!/Cadastrei dono@oficina\.com como dono/.test(saida)) {
+    throw new Error('devia ter cadastrado o dono: ' + saida);
+  }
+  const us = a.g.ler('Usuarios');
+  igual(us.length, 1);
+  igual(us[0].Email, 'dono@oficina.com');
+  igual(us[0].Papel, 'dono');
+  // e o login seguinte entra direto
+  const r = a.chamar('carregar', 'dono@oficina.com');
+  if (!r.ok) throw new Error(r.error);
+  igual(r.data.usuario.papel, 'dono');
+});
+
+t('autorizar rodado duas vezes nao duplica nem rebaixa ninguem', () => {
+  const a = appPronto();
+  const saida = a.g.autorizar();
+  if (!/ja tem 2 pessoa/.test(saida)) throw new Error('devia dizer que ja havia gente: ' + saida);
+  igual(a.g.ler('Usuarios').length, 2);
+});
+
+t('autorizar avisa quando nao descobre o dono', () => {
+  const a = novoApp();
+  a.g.Session.getEffectiveUser = () => { throw new Error('sem permissao'); };
+  a.g.__driveDono = null;
+  const saida = a.g.autorizar();
+  if (!/NAO IDENTIFICADA/.test(saida)) throw new Error('devia avisar: ' + saida);
+  if (!/preencha a mao/.test(saida)) throw new Error('devia ensinar o caminho manual: ' + saida);
+  igual(a.g.ler('Usuarios').length, 0);
+});
+
 t('primeiro acesso do dono da planilha vira dono', () => {
   const a = novoApp();
   const r = a.chamar('carregar', 'dono@oficina.com');

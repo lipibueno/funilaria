@@ -40,6 +40,7 @@ class Folha {
 class Planilha {
   constructor(){ this.folhas = {}; }
   getName(){ return 'Funilaria - Base'; }
+  getId(){ return 'PLANILHA_ID'; }
   getSheetByName(n){ return this.folhas[n] || null; }
   insertSheet(n){ return (this.folhas[n] = new Folha(n)); }
 }
@@ -90,16 +91,23 @@ function montarAmbiente(){
     DriveApp: {
       Access: { ANYONE_WITH_LINK: 'link' }, Permission: { VIEW: 'view' },
       getFoldersByName: () => ({ hasNext: () => false }),
-      createFolder: () => criarPasta()
+      createFolder: n => criarPasta(n),
+      getFileById: () => {
+        if (g.__driveDono === null) throw new Error('sem permissao');
+        return { getOwner: () => (g.__driveDono ? { getEmail: () => g.__driveDono } : null) };
+      }
     },
+    Logger: { log(){} },
     __tokens: {},
     __dono: 'dono@oficina.com',
+    __driveDono: 'dono@oficina.com',
     __ss: ss
   };
-  function criarPasta(){
+  function criarPasta(nome){
     return {
+      getName: () => nome || 'Fotos Orcamentos',
       getFoldersByName: () => ({ hasNext: () => false }),
-      createFolder: () => criarPasta(),
+      createFolder: n => criarPasta(n),
       createFile: () => ({ getId: () => 'FILE1', setSharing(){} })
     };
   }

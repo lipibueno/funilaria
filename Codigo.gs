@@ -88,10 +88,22 @@ function autorizar() {
 
   linhas.push('- pasta de fotos: ' + pastaFotos().getName());
 
-  try {
-    linhas.push('- conta do dono: ' + Session.getEffectiveUser().getEmail());
-  } catch (e) {
-    linhas.push('- conta do dono: nao foi possivel ler');
+  var dono = donoDaPlanilha();
+  linhas.push('- conta do dono: ' + (dono || 'NAO IDENTIFICADA'));
+
+  // Cadastra o dono aqui mesmo. Assim o primeiro acesso nao depende de o
+  // servidor conseguir descobrir quem e o dono na hora do login.
+  linhas.push('');
+  var jaTem = ler('Usuarios');
+  if (jaTem.length) {
+    linhas.push('Aba Usuarios ja tem ' + jaTem.length + ' pessoa(s). Nada a cadastrar.');
+  } else if (dono) {
+    gravar('Usuarios', { Email: dono, Nome: 'Dono', Papel: 'dono', Ativo: true }, 'Email');
+    registrar(dono, 'primeiro_acesso', 'Usuarios', dono, '', 'dono', 'cadastrado pela funcao autorizar');
+    linhas.push('Cadastrei ' + dono + ' como dono na aba Usuarios.');
+  } else {
+    linhas.push('ATENCAO: nao consegui descobrir o dono. Abra a aba Usuarios da planilha');
+    linhas.push('e preencha a mao: Email = seu e-mail, Nome = seu nome, Papel = dono, Ativo = TRUE.');
   }
 
   linhas.push('');
@@ -268,13 +280,26 @@ function usuarioPor(email) {
 // com getEffectiveUser().
 function semearDono(email) {
   if (ler('Usuarios').length) return null;
-  var dono = '';
-  try { dono = String(Session.getEffectiveUser().getEmail() || '').toLowerCase(); } catch (e) {}
+  var dono = donoDaPlanilha();
   if (!dono || dono !== email) return null;
   var u = { Email: email, Nome: 'Dono', Papel: 'dono', Ativo: true };
   gravar('Usuarios', u, 'Email');
   registrar(email, 'primeiro_acesso', 'Usuarios', email, '', 'dono', 'cadastro automatico do dono da planilha');
   return u;
+}
+
+// Quem e o dono. Session.getEffectiveUser() falha em algumas contas, entao o
+// caminho principal e perguntar ao Drive quem e o dono do arquivo da planilha.
+function donoDaPlanilha() {
+  try {
+    var d = DriveApp.getFileById(pl().getId()).getOwner();
+    if (d && d.getEmail()) return String(d.getEmail()).toLowerCase();
+  } catch (e) {}
+  try {
+    var s = String(Session.getEffectiveUser().getEmail() || '');
+    if (s) return s.toLowerCase();
+  } catch (e2) {}
+  return '';
 }
 
 function salvarUsuario(req, u) {

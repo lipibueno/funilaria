@@ -39,6 +39,7 @@ class Folha {
 
 class Planilha {
   constructor(){ this.folhas = {}; }
+  getName(){ return 'Funilaria - Base'; }
   getSheetByName(n){ return this.folhas[n] || null; }
   insertSheet(n){ return (this.folhas[n] = new Folha(n)); }
 }

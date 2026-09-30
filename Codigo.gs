@@ -106,8 +106,46 @@ function autorizar() {
 
 /* ===================== entrada ===================== */
 
-function doGet() {
-  return _json({ ok: true, msg: 'API de orcamentos ativa', versao: ESTRUTURA_V });
+function doGet(e) {
+  var p = (e && e.parameter) || {};
+  if (p.diag !== '1') {
+    return _json({ ok: true, msg: 'API de orcamentos ativa', versao: ESTRUTURA_V });
+  }
+
+  // Diagnostico: abra a URL do app com ?diag=1 no fim.
+  // Roda com a mesma autorizacao das chamadas de verdade, entao mostra
+  // exatamente o que esta faltando. Nao expoe e-mail nem dado da planilha.
+  var d = { versao: ESTRUTURA_V, clientIdPreenchido: !!CLIENT_ID };
+
+  try {
+    var r = UrlFetchApp.fetch('https://oauth2.googleapis.com/tokeninfo?id_token=teste',
+                              { muteHttpExceptions: true });
+    d.chamadaExterna = 'LIBERADA (HTTP ' + r.getResponseCode() + ', 400 e o esperado)';
+  } catch (err) {
+    d.chamadaExterna = 'BLOQUEADA -> rode a funcao autorizar() no editor, aceite as ' +
+                       'permissoes e publique nova versao';
+  }
+
+  try {
+    var em = String(Session.getEffectiveUser().getEmail() || '');
+    d.executandoComo = em
+      ? 'dono da planilha (correto)'
+      : 'visitante -> ERRADO: na implantacao, "Executar como" tem que ser Eu';
+  } catch (e2) {
+    d.executandoComo = 'visitante -> ERRADO: na implantacao, "Executar como" tem que ser Eu';
+  }
+
+  try {
+    pl().getName();
+    d.planilha = 'acessivel';
+  } catch (e3) {
+    d.planilha = 'BLOQUEADA';
+  }
+
+  d.ok = d.chamadaExterna.indexOf('LIBERADA') === 0 &&
+         d.executandoComo.indexOf('correto') > 0 &&
+         d.planilha === 'acessivel' && !!CLIENT_ID;
+  return _json(d);
 }
 
 function doPost(e) {

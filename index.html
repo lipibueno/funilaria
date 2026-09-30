@@ -285,6 +285,27 @@ details.mais[open]>summary::after{content:'▴'}
 .item .desc b{font-size:15px;font-weight:600;flex:1;min-width:0}
 .item .sub{font-size:17px;font-weight:800;white-space:nowrap}
 
+/* marca d'água do logo, atrás de tudo.
+   Fica num pseudo-elemento fixo: pinta uma vez e não repinta ao rolar, e não
+   entra no caminho de nenhum toque. A opacidade é baixa de propósito — valor
+   de orçamento precisa continuar fácil de ler por cima. */
+body::before{
+  content:'';
+  position:fixed;
+  inset:0;
+  background:url('marca-dagua.png') no-repeat center 46% / min(72vw, 360px);
+  opacity:.055;
+  pointer-events:none;
+  z-index:0;
+}
+/* o conteúdo fica por cima da marca */
+main, header, nav, .folha-fundo, .toast, #barraFila{ position:relative; z-index:1 }
+header{ z-index:20 }
+nav{ z-index:20 }
+.folha-fundo{ z-index:60 }
+.toast{ z-index:80 }
+@media (prefers-reduced-motion:no-preference){ body::before{ transition:opacity .2s } }
+
 /* ações direto na linha do painel */
 .linha-orc{display:flex;align-items:stretch;border-bottom:1px solid var(--line)}
 .linha-orc:last-child{border-bottom:none}
@@ -2526,7 +2547,7 @@ function telaAjustes(){
     </div>
     <div class="aviso" style="margin-top:14px">Clientes, orçamentos e pagamentos ficam na planilha. As <b>fotos novas ficam somente neste aparelho</b> (${fotosLocais.size}) e não são enviadas ao Drive. Use “Salvar no aparelho” em cada foto para criar uma cópia fora do app.</div>
     ${CLIENT_ID?'':'<div class="aviso" style="margin-top:10px;border-color:var(--debt);color:var(--debt)"><b>Sem login configurado.</b> Preencha CLIENT_ID no index.html e no Apps Script antes de usar de verdade. Veja SETUP.md.</div>'}
-    <p style="text-align:center;color:var(--steel);font-size:12px">versão 10</p>
+    <p style="text-align:center;color:var(--steel);font-size:12px">versão 11</p>
   </div>`;
   pintarBlocoFotos();
 }

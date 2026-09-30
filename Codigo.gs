@@ -115,26 +115,85 @@ function autorizar() {
   return txt;
 }
 
+/* ===================== menu na planilha ===================== */
+
+// Cria o menu "Orcamentos" na barra da planilha. Roda sozinho ao abrir o arquivo.
+function onOpen() {
+  try {
+    SpreadsheetApp.getUi()
+      .createMenu('Orcamentos')
+      .addItem('Autorizar e cadastrar o dono', 'menuAutorizar')
+      .addSeparator()
+      .addItem('Zerar movimento (clientes, orcamentos, pagamentos)', 'menuZerarMovimento')
+      .addItem('Zerar TUDO (inclui servicos e acessos)', 'menuZerarTudo')
+      .addToUi();
+  } catch (e) { /* sem interface, por exemplo em execucao automatica */ }
+}
+
+function menuAutorizar() {
+  var ui = SpreadsheetApp.getUi();
+  try {
+    ui.alert('Autorizacao', autorizar(), ui.ButtonSet.OK);
+  } catch (e) {
+    ui.alert('Nao deu certo', String(e && e.message || e), ui.ButtonSet.OK);
+  }
+}
+
+function menuZerarMovimento() { _menuZerar(false); }
+function menuZerarTudo() { _menuZerar(true); }
+
+// Pede confirmacao escrita antes de apagar. Sem editar codigo nenhum.
+function _menuZerar(tudo) {
+  var ui = SpreadsheetApp.getUi();
+  var oQue = tudo
+    ? 'TUDO: clientes, orcamentos, itens, pagamentos, historico, sessoes, a lista de servicos e quem tem acesso'
+    : 'clientes, orcamentos, itens, pagamentos, historico e sessoes.\n\nA lista de servicos, os dados da oficina e quem tem acesso continuam';
+
+  var r = ui.prompt(
+    tudo ? 'Zerar TUDO' : 'Zerar os dados',
+    'Isto apaga ' + oQue + '.\n\n' +
+    'NAO tem como desfazer. Se quiser guardar, feche isto e faca antes\n' +
+    'Arquivo > Fazer uma copia.\n\n' +
+    'Todo mundo vai precisar entrar de novo no app.\n\n' +
+    'Para confirmar, digite abaixo:  APAGAR TUDO',
+    ui.ButtonSet.OK_CANCEL);
+
+  if (r.getSelectedButton() !== ui.Button.OK) return;
+
+  if (String(r.getResponseText() || '').trim().toUpperCase() !== 'APAGAR TUDO') {
+    ui.alert('Nada foi apagado', 'O texto digitado nao confere com APAGAR TUDO.', ui.ButtonSet.OK);
+    return;
+  }
+
+  try {
+    ui.alert('Pronto', limparDados('APAGAR TUDO', tudo), ui.ButtonSet.OK);
+  } catch (e) {
+    ui.alert('Nao deu certo', String(e && e.message || e), ui.ButtonSet.OK);
+  }
+}
+
 /**
  * ZERA A PLANILHA para uma oficina comecar do nada.
  *
- * NAO e exposta na API de proposito: so roda aqui no editor, a mao. Para usar,
- * troque a linha abaixo por CONFIRMA = 'APAGAR TUDO' e rode a funcao.
- * Depois volte a linha como estava, para ninguem rodar sem querer.
+ * O jeito normal de usar isto e pelo menu "Orcamentos" na barra da planilha.
+ * Esta funcao e o motor; ela so apaga se receber a confirmacao.
+ *
+ * NAO e exposta na API de proposito: nao da para apagar a base pelo aplicativo,
+ * so por quem tem acesso a propria planilha.
  *
  * Apaga: orcamentos, itens, pagamentos, clientes, sessoes e o historico.
  * Mantem: a lista de servicos, os dados da oficina (Config) e quem tem acesso.
  * Para zerar tambem essas, passe zerarTudo = true.
  */
 function limparDados(confirmacao, tambemCadastros) {
-  var CONFIRMA = confirmacao !== undefined ? confirmacao : '';   // <<< troque por 'APAGAR TUDO'
+  var CONFIRMA = confirmacao !== undefined ? confirmacao : '';
   var zerarTudo = tambemCadastros !== undefined ? !!tambemCadastros : false;
 
-  // Rodar pelo botao do editor nao passa argumento, entao cai na linha acima:
-  // sem editar o codigo, nada e apagado.
+  // Rodar pelo botao Executar do editor nao passa argumento, entao nada acontece.
+  // A confirmacao vem do menu da planilha, onde a pessoa digita APAGAR TUDO.
   if (CONFIRMA !== 'APAGAR TUDO') {
-    return 'Nada foi apagado. Para confirmar, edite a funcao limparDados e ponha ' +
-           "CONFIRMA = 'APAGAR TUDO', depois rode de novo.";
+    return 'Nada foi apagado. Use o menu "Orcamentos" na barra da planilha: ' +
+           'Zerar movimento, ou Zerar TUDO.';
   }
 
   garantirEstrutura();

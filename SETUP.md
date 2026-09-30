@@ -390,6 +390,6 @@ com um simulador do Apps Script:
 node testes/testes.js
 ```
 
-São 86 casos cobrindo login, papéis, concorrência, travamento após pagamento, estorno,
+São 94 casos cobrindo login, papéis, concorrência, travamento após pagamento, estorno,
 cancelamento, limites de valor e a idempotência da fila offline. Há também `node testes/migra.js`, que sobe uma planilha
 na estrutura antiga com dados e confere que a migração preserva tudo.

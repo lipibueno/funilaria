@@ -889,6 +889,78 @@ t('depois de zerar, a numeracao recomeca em 1', () => {
   igual(criarOrc(a, 'func@oficina.com').Numero, 1);
 });
 
+console.log('\n--- menu da planilha (o jeito de zerar sem mexer em codigo) ---');
+t('o menu aparece ao abrir a planilha', () => {
+  const a = appPronto();
+  a.g.onOpen();
+  const m = a.g.__menu;
+  if (!m) throw new Error('nenhum menu foi criado');
+  igual(m.nome, 'Orcamentos');
+  const esperados = ['menuAutorizar', 'menuZerarMovimento', 'menuZerarTudo'];
+  esperados.forEach(fn => {
+    if (!m.itens.some(i => i.indexOf('->' + fn) > 0)) throw new Error('falta o item ' + fn);
+  });
+});
+
+t('onOpen nao quebra quando nao ha interface', () => {
+  const a = appPronto();
+  a.g.__semUi = true;
+  a.g.onOpen();          // nao pode lancar excecao
+});
+
+t('cancelar no menu nao apaga nada', () => {
+  const a = appPronto();
+  criarOrc(a, 'func@oficina.com');
+  a.g.__respostaBotao = 'CANCEL';
+  a.g.menuZerarMovimento();
+  igual(a.g.ler('Orcamentos').length, 1, 'o orcamento tinha que continuar:');
+});
+
+t('texto errado no menu nao apaga nada', () => {
+  const a = appPronto();
+  criarOrc(a, 'func@oficina.com');
+  a.g.__respostaBotao = 'OK';
+  a.g.__respostaTexto = 'apagar';          // falta a segunda palavra
+  a.g.menuZerarMovimento();
+  igual(a.g.ler('Orcamentos').length, 1, 'o orcamento tinha que continuar:');
+  if (!a.g.__alertas.some(x => /Nada foi apagado/.test(x))) {
+    throw new Error('devia ter avisado que nada foi apagado: ' + a.g.__alertas.join(' | '));
+  }
+});
+
+t('texto certo no menu apaga o movimento e preserva os cadastros', () => {
+  const a = appPronto();
+  a.chamar('salvarServico', 'dono@oficina.com', { servico: { Descricao: 'Polimento', ValorPadrao: 120 } });
+  criarOrc(a, 'func@oficina.com');
+  a.g.__respostaBotao = 'OK';
+  a.g.__respostaTexto = 'apagar tudo';     // minusculo e com espaco extra tambem vale
+  a.g.menuZerarMovimento();
+  igual(a.g.ler('Orcamentos').length, 0, 'orcamentos:');
+  igual(a.g.ler('Clientes').length, 0, 'clientes:');
+  if (!a.g.ler('Servicos').length) throw new Error('a lista de servicos nao devia sair');
+  if (!a.g.ler('Usuarios').length) throw new Error('os acessos nao deviam sair');
+});
+
+t('Zerar TUDO pelo menu leva servicos e acessos junto', () => {
+  const a = appPronto();
+  a.chamar('salvarServico', 'dono@oficina.com', { servico: { Descricao: 'X', ValorPadrao: 1 } });
+  criarOrc(a, 'func@oficina.com');
+  a.g.__respostaBotao = 'OK';
+  a.g.__respostaTexto = 'APAGAR TUDO';
+  a.g.menuZerarTudo();
+  igual(a.g.ler('Servicos').length, 0, 'servicos:');
+  igual(a.g.ler('Usuarios').length, 0, 'usuarios:');
+});
+
+t('rodar limparDados pelo botao Executar nao apaga nada', () => {
+  const a = appPronto();
+  criarOrc(a, 'func@oficina.com');
+  const r = a.g.limparDados();            // sem argumento, como o editor faz
+  if (!/Nada foi apagado/.test(r)) throw new Error('devia recusar: ' + r);
+  if (!/menu/.test(r)) throw new Error('devia apontar para o menu: ' + r);
+  igual(a.g.ler('Orcamentos').length, 1);
+});
+
 t('zerarTudo tambem limpa servicos e acessos', () => {
   const a = appPronto();
   a.chamar('salvarServico', 'dono@oficina.com', { servico: { Descricao: 'X', ValorPadrao: 1 } });

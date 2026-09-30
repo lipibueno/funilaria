@@ -51,7 +51,26 @@ function montarAmbiente(){
   const props = {};
   const cache = {};
   const g = {
-    SpreadsheetApp: { getActiveSpreadsheet: () => ss },
+    SpreadsheetApp: {
+      getActiveSpreadsheet: () => ss,
+      getUi: () => {
+        if (g.__semUi) throw new Error('sem interface');
+        return {
+          ButtonSet: { OK: 'OK', OK_CANCEL: 'OK_CANCEL' },
+          Button: { OK: 'OK', CANCEL: 'CANCEL' },
+          createMenu: nome => { const m = { itens: [] };
+            m.addItem = (rot, fn) => { m.itens.push(rot + '->' + fn); return m; };
+            m.addSeparator = () => m;
+            m.addToUi = () => { g.__menu = { nome: nome, itens: m.itens }; };
+            return m; },
+          prompt: (titulo, texto, bs) => ({
+            getSelectedButton: () => g.__respostaBotao || 'OK',
+            getResponseText: () => (g.__respostaTexto === undefined ? '' : g.__respostaTexto)
+          }),
+          alert: (titulo, texto) => { g.__alertas.push(titulo + ': ' + String(texto).slice(0, 120)); }
+        };
+      }
+    },
     PropertiesService: {
       getScriptProperties: () => ({
         getProperty: k => (k in props ? props[k] : null),
@@ -106,6 +125,11 @@ function montarAmbiente(){
       sendEmail: o => { g.__emails.push(o); }
     },
     __emails: [],
+    __alertas: [],
+    __menu: null,
+    __respostaBotao: null,
+    __respostaTexto: undefined,
+    __semUi: false,
     __tokens: {},
     __dono: 'dono@oficina.com',
     __driveDono: 'dono@oficina.com',

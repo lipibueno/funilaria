@@ -885,7 +885,10 @@ function novoRascunho(pref){
 function totais(){
   const total = rascunho.itens.reduce((s,i)=> s + num(i.Qtd)*num(i.Valor), 0);
   const pago  = rascunho.pagamentos.reduce((s,p)=> s + num(p.Valor), 0);
-  return { total, pago, saldo: total - pago };
+  // o que o cliente paga é o valor fechado, quando existe
+  const cobrado = num(rascunho.orcamento.ValorCobrado);
+  const aCobrar = cobrado > 0 ? cobrado : total;
+  return { total, pago, cobrado, aCobrar, desconto: total - aCobrar, saldo: aCobrar - pago };
 }
 
 function blocoEtapas(o, t){
@@ -901,7 +904,11 @@ function blocoEtapas(o, t){
   h += '</div>';
 
   let titulo = '', btn = '';
-  if (o.Status==='Orcamento'){ titulo='Aguardando o cliente aprovar'; btn=`<button class="btn" onclick="avancar('Aprovado')">Cliente aprovou</button>`; }
+  if (o.Status==='Orcamento'){
+    titulo='Aguardando o cliente aprovar';
+    btn=`<button class="btn" onclick="avancar('Aprovado')">Cliente aprovou</button>
+         <button class="btn sec" onclick="arquivarOrc()">Cliente não fechou · arquivar</button>`;
+  }
   else if (o.Status==='Aprovado'){ titulo='Aprovado, serviço ainda não começou'; btn=`<button class="btn" onclick="avancar('Em execucao')">Iniciar serviço</button>`; }
   else if (o.Status==='Em execucao'){ titulo='Carro em serviço'; btn=`<button class="btn" onclick="avancar('Pronto p/ entrega')">Serviço pronto</button>`; }
   else if (o.Status==='Pronto p/ entrega'){
@@ -914,6 +921,11 @@ function blocoEtapas(o, t){
   else if (espera){ titulo=`Carro entregue. Falta receber ${moeda(t.saldo)}`; btn=`<button class="btn tape" onclick="abrirPag()">Receber pagamento</button>`; }
   else if (o.Status==='Finalizado'){ titulo='Serviço entregue e pago'; btn=`<button class="btn sec" onclick="arquivarOrc()">Arquivar (tirar do painel)</button>`; }
 
+  if (String(o.Arquivado)==='true' && o.Status!=='Cancelado'){
+    h += `<div class="proximo"><p>Arquivado — fora do painel.</p>
+      <button class="btn sec" onclick="desarquivarOrc()">Trazer de volta ao painel</button></div>`;
+    return h;
+  }
   h += `<div class="proximo"><p>${titulo}</p>${btn}</div>`;
   if (ANTERIOR[o.Status]) h += `<button class="voltar-etapa" onclick="voltarEtapa()">Voltar uma etapa</button>`;
   return h;
@@ -983,8 +995,18 @@ function telaEditor(){
   h += `<div class="tot-box">
     <div class="l"><span>Serviços</span><b id="totServ">${moeda(t.total)}</b></div>
     <div class="l"><span>Recebido</span><b id="totPago">${moeda(t.pago)}</b></div>
+    <div class="l" id="linhaDesc" style="${t.desconto>0?'':'display:none'}"><span>Desconto</span><b id="totDesc">− ${moeda(t.desconto)}</b></div>
     <div class="big"><span id="totRot">${t.saldo>0?'Falta receber':'Saldo'}</span><b id="totSaldo" class="${t.saldo>0?'saldo-dev':'saldo-ok'}">${moeda(t.saldo)}</b></div>
-  </div>`;
+  </div>
+
+  <label for="fCobrado">Valor cobrado <span style="font-weight:500;text-transform:none">— o preço fechado com o cliente</span></label>
+  <input id="fCobrado" class="moeda" value="${esc(t.cobrado?t.cobrado.toFixed(2).replace('.',','):'')}"
+         placeholder="${esc(moeda(t.total).replace('R$ ',''))} (a soma dos serviços)">
+  <p style="margin:5px 0 0;font-size:12px;color:var(--steel)">
+    ${t.cobrado>0
+      ? `Os serviços somam ${moeda(t.total)}, mas o cliente paga <b>${moeda(t.cobrado)}</b>.`
+      : 'Deixe vazio para cobrar a soma dos serviços. Preencha quando fechar um preço diferente.'}
+  </p>`;
 
   // pagamento
   h += `<div class="secao" id="secPag">Pagamento</div>`;
@@ -1049,6 +1071,8 @@ function telaEditor(){
   tela.querySelectorAll('.item .moeda').forEach(el=>{
     el._aoMudar = v => mudarItem(+el.closest('.item').dataset.ix, 'Valor', v);
   });
+  const cob = $('#fCobrado');
+  if (cob) cob._aoMudar = v =>{ rascunho.orcamento.ValorCobrado = num(v); pintarTotais(); guardarRascunho(); };
   ligarPlaca();
   ligarCliente();
   mostrarVeiculos();
@@ -1067,6 +1091,8 @@ function lerCampos(){
   if (nomeNovo!==undefined && semAcento(nomeNovo.trim())!==semAcento(String(o.ClienteNome||'').trim())) o.ClienteID = '';
   const map = {ClienteNome:'fCli',Telefone:'fTel',Placa:'fPlaca',Data:'fData',Modelo:'fModelo',Ano:'fAno',Cor:'fCor',Obs:'fObs'};
   for (const k in map){ const v = g(map[k]); if (v!==undefined) o[k] = k==='Placa' ? soPlaca(v) : v; }
+  const cobr = g('fCobrado');
+  if (cobr !== undefined) o.ValorCobrado = num(cobr);
 }
 
 /* ===================== rascunho guardado no aparelho ===================== */
@@ -1127,6 +1153,9 @@ function pintarTotais(){
   p('#totServ', moeda(t.total));
   p('#totPago', moeda(t.pago));
   p('#totRot', t.saldo > 0 ? 'Falta receber' : 'Saldo');
+  p('#totDesc', '− ' + moeda(t.desconto));
+  const ld = $('#linhaDesc');
+  if (ld) ld.style.display = t.desconto > 0 ? '' : 'none';
   const s = $('#totSaldo');
   if (s){ s.textContent = moeda(t.saldo); s.className = t.saldo > 0 ? 'saldo-dev' : 'saldo-ok'; }
 }
@@ -1398,7 +1427,7 @@ async function salvarTudo(msg){
     }
     // Pagamentos não vão junto: eles têm ações próprias, que só somam lançamentos.
     const r = await chamar('salvarOrcamento', {
-      orcamento: Object.assign({}, o, { Versao: o.Versao }),
+      orcamento: Object.assign({}, o, { Versao: o.Versao, ValorCobrado: num(o.ValorCobrado) || '' }),
       itens: paraEnviar().map(i=>{
         delete i._novaFoto;
         if (String(i.FotoURL||'').startsWith('data:')) i.FotoURL = '';   // nunca gravar base64 na planilha
@@ -1517,9 +1546,25 @@ async function estornarPag(ix){
 }
 
 async function arquivarOrc(){
+  const o = rascunho.orcamento;
+  if (o.Status === 'Orcamento'){
+    const ok = await confirmar('Cliente não fechou?',
+      'O orçamento sai do painel mas continua na planilha e no histórico do cliente. ' +
+      'Dá para reabrir depois pela ficha dele.', 'Arquivar');
+    if (!ok) return;
+  }
   try{
-    await chamar('arquivar', { id: rascunho.orcamento.ID, arquivar:true });
+    await chamar('arquivar', { id: o.ID, arquivar:true });
     await sincronizar(true); aviso('Orçamento arquivado'); ir('painel');
+  }catch(e){ await tratar(e); }
+}
+
+// Traz de volta ao painel um orçamento arquivado.
+async function desarquivarOrc(){
+  try{
+    const o = await chamar('arquivar', { id: rascunho.orcamento.ID, arquivar:false });
+    rascunho.orcamento = o;
+    await sincronizar(true); aviso('Orçamento de volta ao painel'); telaEditor();
   }catch(e){ await tratar(e); }
 }
 
@@ -1541,6 +1586,64 @@ async function cancelarOrc(){
 }
 
 /* ===================== PDF ===================== */
+
+// As fotos ficam no Drive, que não manda cabeçalho de CORS: o navegador não
+// consegue ler a imagem para dentro do PDF. Quem busca é o servidor, que já tem
+// permissão, e devolve em base64. Guardamos na memória para não baixar duas vezes.
+const cacheFotos = {};
+
+async function fotosDoOrcamento(itens){
+  const saida = [];
+  for (const it of itens){
+    const url = it.FotoURL;
+    if (!url) continue;
+    if (String(url).startsWith('data:')){            // foto recém-tirada, ainda no aparelho
+      saida.push({ desc: it.Descricao, dados: url });
+      continue;
+    }
+    const fid = driveId(url);
+    if (!fid) continue;
+    try{
+      if (!cacheFotos[fid]){
+        const r = await chamar('baixarFoto', { id: fid });
+        cacheFotos[fid] = 'data:' + (r.mime || 'image/jpeg') + ';base64,' + r.base64;
+      }
+      saida.push({ desc: it.Descricao, dados: cacheFotos[fid] });
+    }catch(e){
+      // uma foto que falha não pode impedir o orçamento de sair
+      console.warn('foto não veio', fid, e.message);
+    }
+  }
+  return saida;
+}
+
+// Anexa as fotos ao fim do PDF, duas por linha.
+function anexarFotos(d, fotos){
+  if (!fotos.length) return;
+  const M = 16, larg = 85, alt = 64;
+  d.addPage();
+  let y = 24;
+  d.setFont('helvetica','bold'); d.setFontSize(12); d.setTextColor(20);
+  d.text('Fotos do serviço', M, y);
+  y += 8;
+
+  fotos.forEach((f, i)=>{
+    const col = i % 2;
+    if (col === 0 && y + alt + 14 > 285){ d.addPage(); y = 24; }
+    const x = M + col * (larg + 8);
+    try{
+      d.addImage(f.dados, 'JPEG', x, y, larg, alt, undefined, 'FAST');
+    }catch(e){
+      d.setDrawColor(210); d.rect(x, y, larg, alt);
+    }
+    if (f.desc){
+      d.setFont('helvetica','normal'); d.setFontSize(8); d.setTextColor(110);
+      d.text(d.splitTextToSize(String(f.desc), larg).slice(0,1), x, y + alt + 4);
+    }
+    if (col === 1) y += alt + 12;
+  });
+}
+
 function montarPDF(){
   const { jsPDF } = window.jspdf;
   const d = new jsPDF({unit:'mm', format:'a4'});
@@ -1595,8 +1698,14 @@ function montarPDF(){
     y += forte ? 8 : 5.5;
   };
   linhaTot('Serviços', t.total, false);
-  if (t.pago > 0){ linhaTot('Recebido', t.pago, false); linhaTot(t.saldo>0?'Falta receber':'Saldo', t.saldo, true); }
-  else linhaTot('Total', t.total, true);
+  if (t.desconto > 0) linhaTot('Desconto', -t.desconto, false);
+  if (t.pago > 0){
+    if (t.desconto > 0) linhaTot('Valor cobrado', t.aCobrar, false);
+    linhaTot('Recebido', t.pago, false);
+    linhaTot(t.saldo>0?'Falta receber':'Saldo', t.saldo, true);
+  } else {
+    linhaTot('Total a pagar', t.aCobrar, true);
+  }
 
   if (o.Obs){
     y += 4; d.setFont('helvetica','normal'); d.setFontSize(9); d.setTextColor(90);
@@ -1613,11 +1722,19 @@ async function gerarPDF(compartilhar){
   const o = rascunho.orcamento;
   const nome = `Orcamento-${o.Numero||'novo'}-${String(o.Placa||o.ClienteNome||'').replace(/\W+/g,'')}.pdf`;
   const doc = montarPDF();
+
+  const comFoto = rascunho.itens.filter(i=>i.FotoURL).length;
+  if (comFoto){
+    aviso(`Buscando ${comFoto} foto(s) para o PDF…`);
+    try{ anexarFotos(doc, await fotosDoOrcamento(rascunho.itens)); }
+    catch(e){ aviso('Não consegui anexar as fotos, mas o orçamento vai sem elas.', true); }
+  }
+
   if (!compartilhar){ doc.save(nome); return; }
 
   const blob = doc.output('blob');
   const arq = new File([blob], nome, {type:'application/pdf'});
-  const texto = `Olá${o.ClienteNome?' '+String(o.ClienteNome).split(' ')[0]:''}! Segue o orçamento nº ${o.Numero||''} no valor de ${moeda(totais().total)}.`;
+  const texto = `Olá${o.ClienteNome?' '+String(o.ClienteNome).split(' ')[0]:''}! Segue o orçamento nº ${o.Numero||''} no valor de ${moeda(totais().aCobrar)}.`;
 
   if (navigator.canShare && navigator.canShare({files:[arq]})){
     try{ await navigator.share({ files:[arq], title:nome, text:texto }); return; }
@@ -1967,7 +2084,7 @@ function telaAjustes(){
     </div>
     <div class="aviso" style="margin-top:14px">Os dados ficam na sua planilha do Google. O app guarda uma cópia no aparelho para abrir mais rápido, e ela é apagada quando você sai da conta.</div>
     ${CLIENT_ID?'':'<div class="aviso" style="margin-top:10px;border-color:var(--debt);color:var(--debt)"><b>Sem login configurado.</b> Preencha CLIENT_ID no index.html e no Apps Script antes de usar de verdade. Veja SETUP.md.</div>'}
-    <p style="text-align:center;color:var(--steel);font-size:12px">versão 5</p>
+    <p style="text-align:center;color:var(--steel);font-size:12px">versão 6</p>
   </div>`;
 }
 // Testa exatamente a URL que está gravada no app, sem depender de login.

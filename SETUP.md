@@ -165,7 +165,7 @@ uma planilha na estrutura antiga e com dados dentro.
 - `Orcamentos`: `Versao`, `Travado`, `CriadoPor`, `AlteradoPor`, `MotivoCancelamento`, `ChaveIdem`, `ValorCobrado`
 - `Pagamentos`: `Estorno`, `EstornoDeID`, `LancadoPor`, `LancadoEmMs`, `Motivo`
 - `Servicos`: `Ativo`
-- abas novas: `Usuarios`, `Log`
+- abas novas: `Usuarios`, `Log`, `Sessoes`
 
 ---
 
@@ -235,6 +235,42 @@ alteração. Se o app fechar no meio, no próximo login ele pergunta se quer con
 onde parou. Rascunho com mais de uma semana é descartado.
 
 ---
+
+## Entrar no app
+
+Há dois caminhos, e os dois convivem:
+
+**Código de 6 dígitos por e-mail (principal).** A pessoa digita o e-mail, recebe um
+código e entra. Não precisa de conta Google e **não existe senha** — logo não há senha
+para vazar, esquecer ou trocar. Quem manda o e-mail é o próprio Apps Script, pela conta
+dona da planilha (cota de ~100 e-mails por dia em conta comum).
+
+**Conta Google (alternativo).** Continua funcionando. Serve de reserva: se o envio de
+e-mail falhar, você ainda entra.
+
+Nos dois casos vale a mesma regra — só entra quem está na aba **`Usuarios`**.
+
+### Como está protegido
+
+- O código vale **10 minutos**, serve **uma vez só** e some depois de **5 erros**.
+- Um e-mail pode pedir no máximo **5 códigos por hora**; o sistema todo, **60 por dia**.
+  Isso impede que alguém queime a cota de e-mail da conta e trave o login de todos.
+- E-mail que não está na lista **não recebe nada**, e a resposta é igual à de quem
+  recebeu: de fora não dá para descobrir quem trabalha na oficina.
+- A sessão fica no aparelho até a pessoa **sair**. Na planilha é guardado apenas o
+  **hash** do token: quem abrir a aba `Sessoes` não consegue se passar por ninguém.
+- Bloquear alguém em "Quem pode entrar" derruba a sessão na hora.
+- Perdeu o celular? Em **Quem pode entrar**, "Desconectar este e-mail de todos os
+  aparelhos". A pessoa continua liberada e volta a entrar com um novo código.
+
+## Instalar na tela inicial
+
+O app é instalável e abre em tela cheia, sem barra de navegador.
+
+- **Android/Chrome:** botão **📲 Instalar na tela inicial** em *Mais*, ou ⋮ → Instalar aplicativo.
+- **iPhone:** só pelo **Safari** → Compartilhar ⬆️ → Adicionar à Tela de Início. O iOS não
+  oferece instalação automática, e link aberto de dentro do WhatsApp não serve: tem que
+  ser o Safari.
 
 ## Instalar para outra oficina
 
@@ -354,6 +390,6 @@ com um simulador do Apps Script:
 node testes/testes.js
 ```
 
-São 68 casos cobrindo login, papéis, concorrência, travamento após pagamento, estorno,
+São 86 casos cobrindo login, papéis, concorrência, travamento após pagamento, estorno,
 cancelamento, limites de valor e a idempotência da fila offline. Há também `node testes/migra.js`, que sobe uma planilha
 na estrutura antiga com dados e confere que a migração preserva tudo.

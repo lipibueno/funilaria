@@ -18,7 +18,7 @@ ss.insertSheet('Pagamentos').getRange(1,1,2,6).setValues([
  ['ID','OrcamentoID','Data','Valor','Forma','Obs'],
  ['P_VELHO','O_VELHO','2026-09-02',100,'Pix','sinal']]);
 
-const tok=e=>{const t='tk-'+e;g.__tokens[t]={aud:'CID',iss:'https://accounts.google.com',email:e,email_verified:'true',exp:Math.floor(Date.now()/1000)+3600};return t;};
+const tok=e=>{const t='cab.'+Buffer.from(e).toString('base64url')+'.assin';g.__tokens[t]={aud:'CID',iss:'https://accounts.google.com',email:e,email_verified:'true',exp:Math.floor(Date.now()/1000)+3600};return t;};
 const call=(a,e,c)=>JSON.parse(g.doPost({postData:{contents:JSON.stringify(Object.assign({action:a,token:tok(e)},c||{}))}}).txt);
 
 let f=0; const t=(n,fn)=>{try{fn();console.log('  ok   ',n);}catch(e){console.log('  FALHA',n,'->',e.message);f++;}};

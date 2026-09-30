@@ -1,6 +1,6 @@
-// v7: a página sempre busca a versão nova quando há internet.
+// v8: a página sempre busca a versão nova quando há internet.
 // Ao subir uma alteração, troque o número do CACHE para limpar a cópia antiga.
-const CACHE = 'funilaria-v7';
+const CACHE = 'funilaria-v8';
 
 // Essenciais: se um destes falhar, a instalação falha mesmo (e aí é erro de verdade).
 const ESSENCIAIS = ['./', './index.html', './manifest.json'];

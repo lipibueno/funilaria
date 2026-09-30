@@ -6,6 +6,11 @@
 <meta name="theme-color" content="#14171A">
 <title>Orçamentos — Funilaria</title>
 <link rel="manifest" href="manifest.json">
+<!-- o iPhone ignora o manifest: precisa destas -->
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Orçamentos">
+<link rel="apple-touch-icon" href="icone-192.png">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Archivo:wght@400;500;600;800&display=swap" rel="stylesheet">
@@ -277,6 +282,14 @@ details.mais[open]>summary::after{content:'▴'}
 .item .desc b{font-size:15px;font-weight:600;flex:1;min-width:0}
 .item .sub{font-size:17px;font-weight:800;white-space:nowrap}
 
+/* ações direto na linha do painel */
+.linha-orc{display:flex;align-items:stretch;border-bottom:1px solid var(--line)}
+.linha-orc:last-child{border-bottom:none}
+.linha-orc .orcrow{flex:1;border-bottom:none;min-width:0}
+.maisacoes{flex:none;width:44px;color:var(--steel);font-size:20px;font-weight:700;
+  border-left:1px solid var(--line);display:grid;place-items:center}
+.maisacoes:active{background:var(--primer);color:var(--ink)}
+
 /* fila de envio */
 .offline{background:var(--tape);color:var(--ink);font-size:12.5px;font-weight:700;
   text-align:center;padding:7px 16px}
@@ -385,6 +398,50 @@ function fotoAbrir(url){
 function fotoErro(img){
   const i = driveId(img.dataset.url);
   if (i && !img.dataset.tentou){ img.dataset.tentou = 1; img.src = `https://lh3.googleusercontent.com/d/${i}=w1000`; }
+}
+
+/* ===================== instalar como aplicativo ===================== */
+let convite = null;                                   // o convite do Chrome, quando vier
+const jaInstalado = () => window.matchMedia('(display-mode: standalone)').matches ||
+                          window.navigator.standalone === true;
+const ehIOS = () => /iphone|ipad|ipod/i.test(navigator.userAgent);
+
+window.addEventListener('beforeinstallprompt', e=>{
+  e.preventDefault();          // guarda para oferecer na hora certa, não na abertura
+  convite = e;
+  const bt = $('#btInstalar'); if (bt) bt.style.display = '';
+});
+window.addEventListener('appinstalled', ()=>{ convite = null; aviso('App instalado'); });
+
+async function instalar(){
+  if (jaInstalado()){ aviso('O app já está instalado neste aparelho'); return; }
+
+  if (convite){
+    convite.prompt();
+    const r = await convite.userChoice.catch(()=>({outcome:'dismissed'}));
+    convite = null;
+    aviso(r.outcome === 'accepted' ? 'Instalando…' : 'Instalação cancelada');
+    return;
+  }
+
+  // Sem convite: ou é iPhone (que nunca oferece), ou o Chrome ainda não liberou.
+  await folha({
+    titulo: 'Instalar na tela inicial',
+    corpo: ehIOS()
+      ? `<ol style="margin:0 0 4px 18px;padding:0;line-height:1.8">
+           <li>Toque em <b>Compartilhar</b> ⬆️ na barra do Safari</li>
+           <li>Role e escolha <b>Adicionar à Tela de Início</b></li>
+           <li>Confirme em <b>Adicionar</b></li>
+         </ol>
+         <p class="exp" style="margin-top:10px">No iPhone só funciona pelo Safari. Se abriu por outro
+         navegador ou por um link do WhatsApp, abra o endereço no Safari primeiro.</p>`
+      : `<ol style="margin:0 0 4px 18px;padding:0;line-height:1.8">
+           <li>Toque no menu <b>⋮</b> do Chrome</li>
+           <li>Escolha <b>Instalar aplicativo</b> ou <b>Adicionar à tela inicial</b></li>
+         </ol>
+         <p class="exp" style="margin-top:10px">Se não aparecer, recarregue a página e tente de novo.</p>`,
+    botoes: [{ rot:'Entendi', valor:true }]
+  });
 }
 
 /* ===================== folha inferior ===================== */
@@ -526,6 +583,8 @@ let tokenExp = 0;
 let esperandoToken = null;
 
 const gisPronto = () => !!(window.google && google.accounts && google.accounts.id);
+// O token do Google é um JWT (três partes); o da sessão por código é texto opaco.
+const ehTokenGoogle = t => String(t||'').split('.').length === 3;
 const tokenValido = () => !!token && tokenExp - 60000 > Date.now();
 const ehDono = () => !!usuario && usuario.papel === 'dono';
 
@@ -570,42 +629,162 @@ function renovarToken(){
   });
 }
 
-function sair(){
+async function sair(){
+  // avisa o servidor para a sessão deixar de valer de verdade, não só neste aparelho
+  if (token && !ehTokenGoogle(token)){
+    try{ await chamar('sair', { token }); }catch(e){}
+  }
   token = ''; tokenExp = 0; usuario = null;
+  etapaLogin = 'email';
   dados = { config:{}, clientes:[], servicos:[], orcamentos:[], itens:[], pagamentos:[] };
   localStorage.removeItem('cache');
+  localStorage.removeItem('sessao');
   try{ if (gisPronto()) google.accounts.id.disableAutoSelect(); }catch(e){}
   telaAtual = 'login';
   telaLogin();
+  aviso('Você saiu da conta');
 }
+
+let etapaLogin = 'email';     // 'email' | 'codigo'
+let emailLogin = '';
 
 function telaLogin(motivo){
   $('#btVoltar').classList.add('hide');
   document.querySelectorAll('nav button').forEach(b=> b.setAttribute('aria-current','false'));
-  cabecalho('Entrar','use a conta Google da oficina');
-  if (!CLIENT_ID){
-    tela.innerHTML = `<div class="wrap"><div class="aviso">Falta configurar o <b>CLIENT_ID</b> no index.html e no Apps Script. O passo a passo está no arquivo SETUP.md.</div></div>`;
-    return;
-  }
+  cabecalho('Entrar','acesso da oficina');
+
+  if (etapaLogin === 'codigo'){ telaCodigo(motivo); return; }
+
   tela.innerHTML = `<div class="wrap">
     ${motivo?`<div class="aviso">${esc(motivo)}</div>`:''}
-    <div class="vazio" style="padding:28px 12px">
+    <div class="vazio" style="padding:22px 12px;margin-bottom:6px">
       <div style="font-size:15px;color:var(--ink);font-weight:700;margin-bottom:6px">Orçamentos da oficina</div>
-      Entre com a conta Google autorizada para ver e lançar orçamentos.
+      Informe o e-mail cadastrado. Enviamos um código de 6 dígitos para ele.
     </div>
-    <div id="botaoGoogle" style="display:flex;justify-content:center;margin-top:16px"></div>
-    <button class="btn sec" onclick="ir('ajustes')" style="margin-top:24px">Configurar conexão</button>
+
+    <label for="lgEmail">Seu e-mail</label>
+    <input id="lgEmail" type="email" inputmode="email" autocomplete="email"
+           value="${esc(emailLogin || localStorage.getItem('ultimo_email') || '')}" placeholder="voce@exemplo.com">
+    <button class="btn" id="btCodigo" onclick="enviarCodigo()">Receber código por e-mail</button>
+
+    <div style="display:flex;align-items:center;gap:10px;margin:22px 0 14px;color:var(--steel);font-size:13px">
+      <i style="flex:1;height:1px;background:var(--line)"></i>ou<i style="flex:1;height:1px;background:var(--line)"></i>
+    </div>
+    <div id="botaoGoogle" style="display:flex;justify-content:center"></div>
+    ${CLIENT_ID?'':'<div class="aviso" style="border-color:var(--debt);color:var(--debt)">CLIENT_ID não configurado: o login pelo Google está indisponível.</div>'}
+
+    <button class="btn sec" onclick="ir('ajustes')" style="margin-top:26px">Configurar conexão</button>
   </div>`;
-  if (!iniciarGIS()){ setTimeout(()=>{ if (!usuario && telaAtual==='login') telaLogin(motivo); }, 600); return; }
+
+  const campo = $('#lgEmail');
+  campo.addEventListener('keydown', e=>{ if (e.key==='Enter') enviarCodigo(); });
+
+  if (!CLIENT_ID) return;
+  if (!iniciarGIS()){ setTimeout(()=>{ if (!usuario && telaAtual==='login' && etapaLogin==='email') telaLogin(motivo); }, 600); return; }
   google.accounts.id.renderButton($('#botaoGoogle'), { theme:'filled_black', size:'large', text:'signin_with', shape:'pill', locale:'pt-BR' });
-  google.accounts.id.prompt();
+}
+
+function telaCodigo(motivo){
+  tela.innerHTML = `<div class="wrap">
+    ${motivo?`<div class="aviso" style="border-color:var(--debt)">${esc(motivo)}</div>`:''}
+    <div class="vazio" style="padding:22px 12px;margin-bottom:6px">
+      Enviamos um código para<br><b style="color:var(--ink)">${esc(emailLogin)}</b><br>
+      <span style="font-size:13px">Ele vale por 10 minutos.</span>
+    </div>
+    <label for="lgCodigo">Código de 6 dígitos</label>
+    <input id="lgCodigo" inputmode="numeric" autocomplete="one-time-code" maxlength="6" placeholder="000000"
+           style="font-size:30px;font-weight:800;letter-spacing:10px;text-align:center;padding:14px">
+    <button class="btn" id="btEntrar" onclick="confirmarCodigo()">Entrar</button>
+    <button class="btn sec" onclick="enviarCodigo(true)">Enviar outro código</button>
+    <button class="btn ghost" onclick="etapaLogin='email';telaLogin()">Usar outro e-mail</button>
+  </div>`;
+
+  const c = $('#lgCodigo');
+  c.addEventListener('input', ()=>{
+    c.value = c.value.replace(/\D/g,'').slice(0,6);
+    if (c.value.length === 6) confirmarCodigo();     // entra sozinho ao completar
+  });
+  setTimeout(()=>c.focus(), 150);
+}
+
+async function enviarCodigo(denovo){
+  const campo = $('#lgEmail');
+  const email = ((campo ? campo.value : emailLogin) || '').trim().toLowerCase();
+  if (!email || email.indexOf('@') < 0){ aviso('Informe um e-mail válido', true); return; }
+  if (!API){ aviso('Configure o endereço da API primeiro', true); ir('ajustes'); return; }
+
+  const bt = $('#btCodigo') || $('#btEntrar');
+  if (bt) bt.disabled = true;
+  aviso(denovo ? 'Enviando outro código…' : 'Enviando código…');
+  try{
+    await semLogin('pedirCodigo', { email });
+    emailLogin = email;
+    localStorage.setItem('ultimo_email', email);
+    etapaLogin = 'codigo';
+    telaLogin();
+    aviso('Se esse e-mail tiver acesso, o código chegou. Confira também o spam.');
+  }catch(e){
+    aviso(e.message, true);
+  }finally{ if (bt) bt.disabled = false; }
+}
+
+async function confirmarCodigo(){
+  const c = $('#lgCodigo');
+  const codigo = (c ? c.value : '').replace(/\D/g,'');
+  if (codigo.length !== 6) return;
+  const bt = $('#btEntrar');
+  if (bt) bt.disabled = true;
+  try{
+    const r = await semLogin('entrarComCodigo', {
+      email: emailLogin, codigo, aparelho: navigator.userAgent.slice(0,80) });
+    token = r.token;
+    tokenExp = Date.now() + 365*86400000;     // a validade real quem controla é o servidor
+    localStorage.setItem('sessao', r.token);
+    usuario = r.usuario;
+    etapaLogin = 'email';
+    await entrar();
+  }catch(e){
+    aviso(e.message, true);
+    if (c){ c.value=''; c.focus(); }
+    if (bt) bt.disabled = false;
+  }
 }
 
 /* ===================== chamadas à API ===================== */
+
+// Chamada que não exige sessão: só pedirCodigo e entrarComCodigo passam por aqui.
+async function semLogin(action, corpo){
+  if (!API) throw new Error('Configure o endereço da API em Ajustes');
+  let j;
+  try{
+    const r = await fetch(API, {
+      method:'POST',
+      headers:{'Content-Type':'text/plain;charset=utf-8'},
+      body: JSON.stringify(Object.assign({action}, corpo||{}))
+    });
+    j = await r.json();
+  }catch(falha){
+    const e = new Error('Sem conexão com a planilha agora');
+    e.codigo = 'REDE'; throw e;
+  }
+  if (!j.ok){
+    const e = new Error(j.error || 'Falha na API');
+    e.codigo = j.codigo || 'ERRO';
+    throw e;
+  }
+  return j.data;
+}
+
 async function chamar(action, corpo){
   if (!API) throw new Error('Configure o endereço da API em Ajustes');
-  if (!tokenValido() && !(await renovarToken())){
-    const e = new Error('Entre com sua conta Google para continuar');
+  // Sessão por código não expira no aparelho: quem decide é o servidor.
+  // Só o login do Google precisa renovar o token de tempos em tempos.
+  if (!token && !(await renovarToken())){
+    const e = new Error('Entre para continuar');
+    e.codigo = 'NAO_AUTORIZADO'; throw e;
+  }
+  if (ehTokenGoogle(token) && !tokenValido() && !(await renovarToken())){
+    const e = new Error('Login do Google expirou. Entre de novo.');
     e.codigo = 'NAO_AUTORIZADO'; throw e;
   }
   let j;
@@ -720,9 +899,21 @@ function pintarAvisoFila(){
 window.addEventListener('online', ()=>{ aviso('Conexão de volta'); esvaziarFila(true); });
 window.addEventListener('offline', ()=> aviso('Sem internet. Orçamentos novos ficam guardados no aparelho.', true));
 
+// Sessão caiu (expirou, foi encerrada pelo dono, acesso desativado): volta ao login
+// e descarta a cópia local, para não deixar dado de orçamento em aparelho sem acesso.
+function perderSessao(motivo){
+  token = ''; tokenExp = 0; usuario = null;
+  etapaLogin = 'email';
+  dados = { config:{}, clientes:[], servicos:[], orcamentos:[], itens:[], pagamentos:[] };
+  localStorage.removeItem('sessao');
+  localStorage.removeItem('cache');
+  telaAtual = 'login';
+  telaLogin(motivo);
+}
+
 // Trata de forma única os erros que exigem uma reação e não só um aviso.
 async function tratar(e){
-  if (e.codigo === 'NAO_AUTORIZADO'){ token=''; tokenExp=0; usuario=null; telaAtual='login'; telaLogin(e.message); return true; }
+  if (e.codigo === 'NAO_AUTORIZADO'){ perderSessao(e.message); return true; }
   if (e.codigo === 'CONFLITO'){
     aviso(e.message, true);
     const ativo = rascunho && rascunho.orcamento && rascunho.orcamento.ID;
@@ -749,7 +940,7 @@ async function sincronizar(silencioso){
     salvarCache();
     if (!silencioso){ aviso('Dados atualizados'); render(); }
   }catch(e){
-    if (e.codigo === 'NAO_AUTORIZADO'){ token=''; tokenExp=0; usuario=null; telaAtual='login'; telaLogin(e.message); return; }
+    if (e.codigo === 'NAO_AUTORIZADO'){ perderSessao(e.message); return; }
     if (!silencioso) aviso(e.message, true);
   }
 }
@@ -777,7 +968,7 @@ function cabecalho(t, s){ $('#titulo').childNodes[0].nodeValue = t; $('#subtitul
 
 function render(){
   // sem login válido nada é exibido, nem a partir do cache local
-  if (CLIENT_ID && !usuario && telaAtual!=='ajustes'){ telaAtual='login'; telaLogin(); return; }
+  if (!usuario && telaAtual!=='ajustes'){ telaAtual='login'; telaLogin(); return; }
   if (telaAtual==='login') telaLogin();
   else if (telaAtual==='painel') telaPainel();
   else if (telaAtual==='editor') telaEditor();
@@ -848,18 +1039,56 @@ function telaPainel(){
           ${aberto>0?`<span class="aberto">falta ${moeda(aberto)}</span>`:''}
         </button>`;
       g.orcs.sort((x,y)=>String(y.AtualizadoEm||'').localeCompare(String(x.AtualizadoEm||''))).forEach(o=>{
-        h += `<button class="orcrow" onclick="abrir('${escJs(o.ID)}')">
-          <div><span class="pl">${esc(o.Placa||'sem placa')}</span> <span class="md">${esc(o.Modelo||'')} · nº ${esc(o.Numero)}</span></div>
-          <div class="vl">${moeda(o.Total)}</div>
-          <div><span class="pill ${pillClasse(o.Status)}">${ROTULO[o.Status]||o.Status}</span></div>
-          <div class="st">${num(o.Total)>0&&num(o.Saldo)<=0?'<span class="pago">Pago</span>':num(o.Pago)>0?`<span class="dev">falta ${moeda(o.Saldo)}</span>`:''}</div>
-        </button>`;
+        const cobrar = num(o.ValorCobrado) > 0 ? num(o.ValorCobrado) : num(o.Total);
+        h += `<div class="linha-orc">
+          <button class="orcrow" onclick="abrir('${escJs(o.ID)}')">
+            <div><span class="pl">${esc(o.Placa||'sem placa')}</span> <span class="md">${esc(o.Modelo||'')} · nº ${esc(o.Numero)}</span></div>
+            <div class="vl">${moeda(cobrar)}</div>
+            <div><span class="pill ${pillClasse(o.Status)}">${ROTULO[o.Status]||o.Status}</span></div>
+            <div class="st">${cobrar>0&&num(o.Saldo)<=0?'<span class="pago">Pago</span>':num(o.Pago)>0?`<span class="dev">falta ${moeda(o.Saldo)}</span>`:''}</div>
+          </button>
+          <button class="maisacoes" onclick="acoesDoOrcamento('${escJs(o.ID)}')" aria-label="Ações do orçamento ${esc(o.Numero)}">⋮</button>
+        </div>`;
       });
       h += `</div>`;
     });
   tela.innerHTML = h + '</div>';
 }
 function filtrar(s){ filtro = s; telaPainel(); }
+
+// Ações sem precisar abrir o orçamento. As regras são as mesmas de dentro dele.
+async function acoesDoOrcamento(oid){
+  const o = dados.orcamentos.find(x=>String(x.ID)===String(oid));
+  if (!o) return;
+  const pago = num(o.Pago) !== 0;
+  const botoes = [{ rot:'Abrir orçamento', valor:'abrir' }];
+
+  if (String(o.Arquivado)==='true') botoes.push({ rot:'Trazer de volta ao painel', valor:'desarquivar', classe:'sec' });
+  else botoes.push({ rot:'Arquivar (tirar do painel)', valor:'arquivar', classe:'sec' });
+
+  if (ehDono() && !pago && o.Status!=='Cancelado'){
+    botoes.push({ rot:'Cancelar orçamento', valor:'cancelar', classe:'ghost' });
+  }
+  botoes.push({ rot:'Fechar', valor:null, classe:'sec' });
+
+  const motivo = pago
+    ? 'Tem pagamento lançado: para cancelar, estorne antes, dentro do orçamento.'
+    : (!ehDono() ? 'Só o dono pode cancelar um orçamento.' : '');
+
+  const escolha = await folha({
+    titulo: `${o.Placa||'sem placa'} · nº ${o.Numero}`,
+    texto: `${o.ClienteNome||'sem cliente'} — ${ROTULO[o.Status]||o.Status}${motivo?'\n'+motivo:''}`,
+    botoes
+  });
+  if (!escolha) return;
+  if (escolha === 'abrir'){ abrir(oid); return; }
+
+  // as ações reaproveitam o fluxo do editor, com as mesmas confirmações
+  abrir(oid);
+  if (escolha === 'arquivar') await arquivarOrc();
+  else if (escolha === 'desarquivar') await desarquivarOrc();
+  else if (escolha === 'cancelar') await cancelarOrc();
+}
 
 function abrir(oid){
   const o = dados.orcamentos.find(x=>String(x.ID)===String(oid));
@@ -1938,6 +2167,12 @@ function telaMais(){
     h += li('Histórico de alterações', 'quem mexeu em quê, e quando', "ir('log')");
   }
   h += li('Ajustes', 'conexão com a planilha', "ir('ajustes')");
+  if (!jaInstalado()){
+    h += `<button class="btn sec" id="btInstalar" style="margin-top:14px" onclick="instalar()">
+      📲 Instalar na tela inicial</button>
+      <p style="margin:6px 0 0;font-size:12px;color:var(--steel);text-align:center">
+        Abre em tela cheia, sem a barra do navegador.</p>`;
+  }
   h += `<button class="btn ghost" onclick="sair()" style="margin-top:20px">Sair da conta</button>`;
   tela.innerHTML = h + '</div>';
 }
@@ -1947,7 +2182,8 @@ function telaUsuarios(){
   if (!ehDono()){ ir('mais'); return; }
   cabecalho('Quem pode entrar','acesso ao app da oficina');
   tela.innerHTML = `<div class="wrap">
-    <div class="aviso">Cada pessoa entra com a própria conta Google. Quem não estiver nesta lista não passa do login.</div>
+    <div class="aviso">Quem não estiver nesta lista não passa do login. A pessoa entra recebendo um código
+    de 6 dígitos no e-mail cadastrado — não precisa ter conta Google, e não existe senha para esquecer.</div>
     <label for="uEmail">E-mail da conta Google</label>
     <input id="uEmail" inputmode="email" autocomplete="off" placeholder="pessoa@gmail.com">
     <label for="uNome">Nome</label>
@@ -1959,6 +2195,9 @@ function telaUsuarios(){
     </select>
     <button class="btn" onclick="liberarUsuario(true)">Liberar acesso</button>
     <button class="btn sec" onclick="liberarUsuario(false)">Bloquear este e-mail</button>
+    <button class="btn ghost" onclick="derrubarSessoes()">Desconectar este e-mail de todos os aparelhos</button>
+    <p style="margin:2px 0 0;font-size:12px;color:var(--steel)">
+      Use quando alguém perder o celular. A pessoa continua liberada e entra de novo pedindo um código.</p>
     <div class="aviso" style="margin-top:14px">A lista completa está na aba <b>Usuarios</b> da planilha, onde também dá para editar direto.</div>
   </div>`;
 }
@@ -1971,6 +2210,19 @@ async function liberarUsuario(ativo){
     await chamar('salvarUsuario', { email, nome: $('#uNome').value||'', papel: $('#uPapel').value, ativo });
     aviso(ativo ? 'Acesso liberado para '+email : 'Acesso bloqueado');
     $('#uEmail').value=''; $('#uNome').value='';
+  }catch(e){ await tratar(e); }
+}
+
+async function derrubarSessoes(){
+  const email = ($('#uEmail').value||'').trim().toLowerCase();
+  if (!email || email.indexOf('@')<0){ aviso('Informe o e-mail', true); return; }
+  const motivo = await perguntar(`Desconectar ${email}`,
+    'Todos os aparelhos em que essa pessoa estiver logada vão pedir login de novo.',
+    { rotulo:'Motivo', dica:'ex.: perdeu o celular', obrigatorio:true, ok:'Desconectar', perigo:true });
+  if (!motivo) return;
+  try{
+    const r = await chamar('encerrarSessoes', { email, motivo });
+    aviso(r.encerradas ? r.encerradas + ' aparelho(s) desconectado(s)' : 'Não havia aparelho conectado com esse e-mail');
   }catch(e){ await tratar(e); }
 }
 
@@ -2084,7 +2336,7 @@ function telaAjustes(){
     </div>
     <div class="aviso" style="margin-top:14px">Os dados ficam na sua planilha do Google. O app guarda uma cópia no aparelho para abrir mais rápido, e ela é apagada quando você sai da conta.</div>
     ${CLIENT_ID?'':'<div class="aviso" style="margin-top:10px;border-color:var(--debt);color:var(--debt)"><b>Sem login configurado.</b> Preencha CLIENT_ID no index.html e no Apps Script antes de usar de verdade. Veja SETUP.md.</div>'}
-    <p style="text-align:center;color:var(--steel);font-size:12px">versão 7</p>
+    <p style="text-align:center;color:var(--steel);font-size:12px">versão 8</p>
   </div>`;
 }
 // Testa exatamente a URL que está gravada no app, sem depender de login.
@@ -2151,22 +2403,31 @@ async function salvarApi(){
 
 /* ===================== início ===================== */
 lerCache();
-if (CLIENT_ID){
-  // nada é mostrado antes do login, mesmo havendo cópia local
+
+// Sessão por código fica guardada: o app abre já logado, e só sai quando a pessoa pedir.
+const sessaoSalva = localStorage.getItem('sessao');
+if (sessaoSalva){
+  token = sessaoSalva;
+  tokenExp = Date.now() + 365*86400000;
+  telaAtual = 'painel';
+  tela.innerHTML = '<div class="carregando">Entrando…</div>';
+  entrar();
+} else {
+  // sem sessão, nada é mostrado antes do login — nem a partir da cópia local.
+  // O login por código funciona mesmo sem o Google configurado.
   dados.orcamentos = dados.orcamentos || [];
   telaAtual = 'login';
   telaLogin();
-  // o script do Google pode chegar depois; ao chegar, redesenha o botão —
-  // mas só se ainda estivermos no login, senão apaga o painel de quem já entrou
-  const esperarGIS = setInterval(()=>{
-    if (!iniciarGIS()) return;
-    clearInterval(esperarGIS);
-    if (!usuario && telaAtual==='login') telaLogin();
-  }, 300);
-  setTimeout(()=>clearInterval(esperarGIS), 15000);
-} else {
-  render();
-  if (API) sincronizar(true).then(render);
+  if (CLIENT_ID){
+    // o script do Google pode chegar depois; ao chegar, redesenha o botão —
+    // mas só se ainda estivermos no login, senão apaga o painel de quem já entrou
+    const esperarGIS = setInterval(()=>{
+      if (!iniciarGIS()) return;
+      clearInterval(esperarGIS);
+      if (!usuario && telaAtual==='login' && etapaLogin==='email') telaLogin();
+    }, 300);
+    setTimeout(()=>clearInterval(esperarGIS), 15000);
+  }
 }
 pintarAvisoFila();
 // Atualização: procura versão nova ao abrir e sempre que o app volta para a frente.

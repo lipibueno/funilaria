@@ -61,14 +61,17 @@ function montarAmbiente(){
     CacheService: {
       getScriptCache: () => ({
         get: k => (k in cache ? cache[k] : null),
-        put: (k, v) => { cache[k] = v; }
+        put: (k, v) => { cache[k] = v; },
+        remove: k => { delete cache[k]; }
       })
     },
+    __cache: cache,
     LockService: { getScriptLock: () => ({ tryLock: () => true, releaseLock(){} }) },
     Utilities: {
       DigestAlgorithm: { SHA_256: 'sha256' },
       computeDigest: (_a, t) => require('crypto').createHash('sha256').update(t).digest(),
       base64EncodeWebSafe: b => Buffer.from(b).toString('base64url'),
+      getUuid: () => require('crypto').randomUUID(),
       base64Decode: s => Buffer.from(s, 'base64'),
       newBlob: (b, m, n) => ({ b, m, n }),
       formatDate: (d, _tz, _f) => d.toISOString().slice(0, 10)
@@ -99,6 +102,10 @@ function montarAmbiente(){
       }
     },
     Logger: { log(){} },
+    MailApp: {
+      sendEmail: o => { g.__emails.push(o); }
+    },
+    __emails: [],
     __tokens: {},
     __dono: 'dono@oficina.com',
     __driveDono: 'dono@oficina.com',

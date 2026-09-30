@@ -25,7 +25,9 @@ function novoApp(){
   g.CLIENT_ID = 'CID';
   // tokens fictícios: chave = token, valor = resposta do tokeninfo
   const tok = (email) => {
-    const t = 'tk-' + email;
+    // id_token do Google e um JWT: tres partes separadas por ponto.
+    // O app distingue por isso, entao o token de teste tem que ter a mesma forma.
+    const t = 'cab.' + Buffer.from(email).toString('base64url') + '.assin';
     g.__tokens[t] = { aud: 'CID', iss: 'https://accounts.google.com', email,
                       email_verified: 'true', exp: Math.floor(Date.now() / 1000) + 3600 };
     return t;
@@ -184,6 +186,173 @@ t('dono nao consegue tirar o proprio acesso', () => {
   const a = appPronto();
   recusa(() => a.chamar('salvarUsuario', 'dono@oficina.com',
     { email: 'dono@oficina.com', papel: 'funcionario' }), 'PERMISSAO');
+});
+
+console.log('\n--- entrar com codigo por e-mail ---');
+
+// Le o codigo do e-mail que o simulador "enviou".
+function codigoDoEmail(a){
+  const ultimo = a.g.__emails[a.g.__emails.length - 1];
+  if (!ultimo) return null;
+  const m = String(ultimo.subject).match(/(\d{6})/);
+  return m ? m[1] : null;
+}
+
+t('pedir codigo manda e-mail para quem tem acesso', () => {
+  const a = appPronto();
+  const r = a.post({ action: 'pedirCodigo', email: 'func@oficina.com' });
+  if (!r.ok) throw new Error(r.error);
+  igual(a.g.__emails.length, 1);
+  igual(a.g.__emails[0].to, 'func@oficina.com');
+  if (!/^\d{6} e o seu codigo/.test(a.g.__emails[0].subject)) {
+    throw new Error('assunto devia comecar com o codigo: ' + a.g.__emails[0].subject);
+  }
+});
+
+t('e-mail sem acesso nao recebe nada, e a resposta e a mesma', () => {
+  const a = appPronto();
+  const bom = a.post({ action: 'pedirCodigo', email: 'func@oficina.com' });
+  const mau = a.post({ action: 'pedirCodigo', email: 'ninguem@fora.com' });
+  igual(JSON.stringify(mau.data), JSON.stringify(bom.data), 'as respostas tem que ser iguais:');
+  igual(a.g.__emails.length, 1, 'so o cadastrado recebeu:');
+});
+
+t('codigo certo entra e devolve sessao', () => {
+  const a = appPronto();
+  a.post({ action: 'pedirCodigo', email: 'func@oficina.com' });
+  const r = a.post({ action: 'entrarComCodigo', email: 'func@oficina.com', codigo: codigoDoEmail(a) });
+  if (!r.ok) throw new Error(r.error);
+  if (!r.data.token || r.data.token.length < 40) throw new Error('token fraco ou ausente');
+  igual(r.data.usuario.email, 'func@oficina.com');
+  igual(r.data.usuario.papel, 'funcionario');
+});
+
+t('a sessao serve para usar o app', () => {
+  const a = appPronto();
+  a.post({ action: 'pedirCodigo', email: 'func@oficina.com' });
+  const tk = a.post({ action: 'entrarComCodigo', email: 'func@oficina.com', codigo: codigoDoEmail(a) }).data.token;
+  const r = a.post({ action: 'carregar', token: tk });
+  if (!r.ok) throw new Error(r.error);
+  igual(r.data.usuario.email, 'func@oficina.com');
+});
+
+t('o token guardado na planilha e o hash, nao o token', () => {
+  const a = appPronto();
+  a.post({ action: 'pedirCodigo', email: 'func@oficina.com' });
+  const tk = a.post({ action: 'entrarComCodigo', email: 'func@oficina.com', codigo: codigoDoEmail(a) }).data.token;
+  const linhas = a.g.ler('Sessoes');
+  igual(linhas.length, 1);
+  if (String(linhas[0].TokenHash) === tk) throw new Error('o token foi guardado em texto puro!');
+  if (String(linhas[0].TokenHash).indexOf(tk) >= 0) throw new Error('o token aparece dentro do hash!');
+});
+
+t('codigo errado nao entra e vai consumindo tentativas', () => {
+  const a = appPronto();
+  a.post({ action: 'pedirCodigo', email: 'func@oficina.com' });
+  const r = recusa(() => a.post({ action: 'entrarComCodigo', email: 'func@oficina.com', codigo: '000000' }), 'CODIGO');
+  if (!/tentativa/.test(r.error)) throw new Error('devia dizer quantas faltam: ' + r.error);
+});
+
+t('codigo bloqueia depois de 5 erros', () => {
+  const a = appPronto();
+  a.post({ action: 'pedirCodigo', email: 'func@oficina.com' });
+  const certo = codigoDoEmail(a);
+  for (let i = 0; i < 5; i++) {
+    a.post({ action: 'entrarComCodigo', email: 'func@oficina.com', codigo: '000000' });
+  }
+  // agora nem o codigo certo passa
+  recusa(() => a.post({ action: 'entrarComCodigo', email: 'func@oficina.com', codigo: certo }), 'CODIGO');
+});
+
+t('codigo serve uma vez so', () => {
+  const a = appPronto();
+  a.post({ action: 'pedirCodigo', email: 'func@oficina.com' });
+  const c = codigoDoEmail(a);
+  const r1 = a.post({ action: 'entrarComCodigo', email: 'func@oficina.com', codigo: c });
+  if (!r1.ok) throw new Error(r1.error);
+  recusa(() => a.post({ action: 'entrarComCodigo', email: 'func@oficina.com', codigo: c }), 'CODIGO');
+});
+
+t('codigo de um e-mail nao serve para outro', () => {
+  const a = appPronto();
+  a.post({ action: 'pedirCodigo', email: 'func@oficina.com' });
+  const c = codigoDoEmail(a);
+  recusa(() => a.post({ action: 'entrarComCodigo', email: 'dono@oficina.com', codigo: c }), 'CODIGO');
+});
+
+t('codigo expirado nao entra', () => {
+  const a = appPronto();
+  a.post({ action: 'pedirCodigo', email: 'func@oficina.com' });
+  const c = codigoDoEmail(a);
+  // envelhece o codigo guardado
+  for (const k in a.g.__cache){
+    if (k.indexOf('cod_') === 0){
+      const d = JSON.parse(a.g.__cache[k]); d.exp = Date.now() - 1000;
+      a.g.__cache[k] = JSON.stringify(d);
+    }
+  }
+  recusa(() => a.post({ action: 'entrarComCodigo', email: 'func@oficina.com', codigo: c }), 'CODIGO');
+});
+
+t('token inventado nao entra', () => {
+  const a = appPronto();
+  recusa(() => a.post({ action: 'carregar', token: 'a'.repeat(64) }), 'NAO_AUTORIZADO');
+});
+
+t('sessao expirada e recusada e sai da planilha', () => {
+  const a = appPronto();
+  a.post({ action: 'pedirCodigo', email: 'func@oficina.com' });
+  const tk = a.post({ action: 'entrarComCodigo', email: 'func@oficina.com', codigo: codigoDoEmail(a) }).data.token;
+  const s = a.aba('Sessoes');
+  const cab = s.getRange(1, 1, 1, s.getLastColumn()).getValues()[0];
+  s.getRange(2, cab.indexOf('ExpiraEmMs') + 1).setValue(Date.now() - 1000);
+  recusa(() => a.post({ action: 'carregar', token: tk }), 'NAO_AUTORIZADO');
+  igual(a.g.ler('Sessoes').length, 0, 'a linha vencida devia ter sido removida:');
+});
+
+t('sair derruba a sessao daquele aparelho', () => {
+  const a = appPronto();
+  a.post({ action: 'pedirCodigo', email: 'func@oficina.com' });
+  const tk = a.post({ action: 'entrarComCodigo', email: 'func@oficina.com', codigo: codigoDoEmail(a) }).data.token;
+  const r = a.post({ action: 'sair', token: tk });
+  if (!r.ok) throw new Error(r.error);
+  recusa(() => a.post({ action: 'carregar', token: tk }), 'NAO_AUTORIZADO');
+});
+
+t('acesso desativado derruba a sessao existente', () => {
+  const a = appPronto();
+  a.post({ action: 'pedirCodigo', email: 'func@oficina.com' });
+  const tk = a.post({ action: 'entrarComCodigo', email: 'func@oficina.com', codigo: codigoDoEmail(a) }).data.token;
+  a.chamar('salvarUsuario', 'dono@oficina.com', { email: 'func@oficina.com', ativo: false });
+  recusa(() => a.post({ action: 'carregar', token: tk }), 'NAO_AUTORIZADO');
+});
+
+t('dono encerra as sessoes de alguem', () => {
+  const a = appPronto();
+  a.post({ action: 'pedirCodigo', email: 'func@oficina.com' });
+  const tk = a.post({ action: 'entrarComCodigo', email: 'func@oficina.com', codigo: codigoDoEmail(a) }).data.token;
+  const r = a.chamar('encerrarSessoes', 'dono@oficina.com', { email: 'func@oficina.com', motivo: 'celular perdido' });
+  igual(r.data.encerradas, 1);
+  recusa(() => a.post({ action: 'carregar', token: tk }), 'NAO_AUTORIZADO');
+});
+
+t('funcionario nao encerra sessao dos outros', () => {
+  const a = appPronto();
+  recusa(() => a.chamar('encerrarSessoes', 'func@oficina.com', { email: 'dono@oficina.com' }), 'PERMISSAO');
+});
+
+t('limite de pedidos por e-mail segura o abuso', () => {
+  const a = appPronto();
+  for (let i = 0; i < 5; i++) a.post({ action: 'pedirCodigo', email: 'func@oficina.com' });
+  const r = recusa(() => a.post({ action: 'pedirCodigo', email: 'func@oficina.com' }), 'MUITAS');
+  igual(a.g.__emails.length, 5, 'nao podia ter mandado o sexto:');
+});
+
+t('o login do Google continua funcionando junto', () => {
+  const a = appPronto();
+  const r = a.chamar('carregar', 'dono@oficina.com');
+  if (!r.ok) throw new Error(r.error);
+  igual(r.data.usuario.papel, 'dono');
 });
 
 console.log('\n--- orcamento e concorrencia ---');

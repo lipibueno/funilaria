@@ -23,7 +23,7 @@ var PASTA_FOTOS = '';            // ID de uma pasta do Drive; vazio = cria sozin
 
 /* ===================== estrutura da planilha ===================== */
 
-var ESTRUTURA_V = '6';
+var ESTRUTURA_V = '7';
 var ESTRUTURA = {
   Config:     ['Chave','Valor'],
   Usuarios:   ['Email','Nome','Papel','Ativo'],
@@ -35,7 +35,10 @@ var ESTRUTURA = {
   Itens:      ['ID','OrcamentoID','Ordem','Descricao','Qtd','Valor','Subtotal','FotoURL'],
   Pagamentos: ['ID','OrcamentoID','Data','Valor','Forma','Obs','Estorno','EstornoDeID',
                'LancadoPor','LancadoEmMs','Motivo'],
-  Log:        ['Quando','Email','Acao','Entidade','EntidadeID','Antes','Depois','Motivo']
+  Log:        ['Quando','Email','Acao','Entidade','EntidadeID','Antes','Depois','Motivo'],
+  // Sessoes guarda o HASH do token, nunca o token. Quem abrir a planilha nao
+  // consegue se passar por ninguem.
+  Sessoes:    ['TokenHash','Email','CriadaEm','ExpiraEmMs','Aparelho','UltimoUsoMs']
 };
 
 // Cria abas e colunas que faltarem. Nunca apaga nem reordena o que ja existe.
@@ -228,9 +231,14 @@ function doPost(e) {
     var acao = ACOES[req.action];
     if (!acao) throw erro('ACAO', 'Acao desconhecida: ' + req.action);
 
-    usuario = autenticar(req.token);
-    if (acao.papeis.indexOf(usuario.Papel) < 0) {
-      throw erro('PERMISSAO', 'Seu acesso e de ' + usuario.Papel + ' e nao permite esta acao');
+    // Duas acoes rodam sem login, porque sao a propria porta de entrada. Elas se
+    // protegem sozinhas: limite de envios, codigo de uso unico e resposta igual
+    // para e-mail conhecido ou nao. Nenhuma delas le ou grava dado de orcamento.
+    if (!acao.semLogin) {
+      usuario = autenticar(req.token);
+      if (acao.papeis.indexOf(usuario.Papel) < 0) {
+        throw erro('PERMISSAO', 'Seu acesso e de ' + usuario.Papel + ' e nao permite esta acao');
+      }
     }
 
     if (!acao.escreve) return _json({ ok: true, data: acao.fn(req, usuario) });
@@ -255,6 +263,10 @@ function doPost(e) {
 }
 
 var ACOES = {
+  pedirCodigo:        { fn: pedirCodigo,        papeis: [],                      escreve: false, semLogin: true },
+  entrarComCodigo:    { fn: entrarComCodigo,    papeis: [],                      escreve: true,  semLogin: true },
+  sair:               { fn: sair,               papeis: ['dono', 'funcionario'], escreve: true },
+  encerrarSessoes:    { fn: encerrarSessoes,    papeis: ['dono'],                escreve: true },
   carregar:           { fn: carregar,           papeis: ['dono', 'funcionario'], escreve: false },
   listarLog:          { fn: listarLog,          papeis: ['dono'],                escreve: false },
   salvarOrcamento:    { fn: salvarOrcamento,    papeis: ['dono', 'funcionario'], escreve: true },
@@ -275,8 +287,10 @@ var ACOES = {
 
 // Confere o token do Google Sign-In e devolve a linha da aba Usuarios.
 function autenticar(token) {
-  if (!token) throw erro('NAO_AUTORIZADO', 'Entre com sua conta Google para continuar');
-  var email = emailDoToken(token);
+  if (!token) throw erro('NAO_AUTORIZADO', 'Entre para continuar');
+  // Dois jeitos de entrar convivem: o token do Google e um JWT (tem dois pontos),
+  // a sessao criada pelo codigo por e-mail e um texto opaco.
+  var email = String(token).split('.').length === 3 ? emailDoToken(token) : emailDaSessao(token);
   var u = usuarioPor(email);
   if (!u) u = semearDono(email);
   if (!u) throw erro('NAO_AUTORIZADO', email + ' nao tem acesso. Peca ao dono para liberar.');
@@ -325,6 +339,186 @@ function emailDoToken(token) {
   var email = String(d.email).toLowerCase();
   cache.put(chave, email, Math.min(300, faltaSeg));
   return email;
+}
+
+/* ---------- entrar com codigo de 6 digitos por e-mail ---------- */
+
+var CODIGO_VALE_MIN = 10;     // quanto tempo o codigo serve
+var CODIGO_TENTATIVAS = 5;    // erros permitidos antes de invalidar
+var SESSAO_DIAS = 365;        // "fica logado sempre": so sai quando pedir
+var LIMITE_POR_EMAIL_HORA = 5;
+var LIMITE_GERAL_DIA = 60;    // protege a cota de e-mail do Google
+
+// Pede o codigo. Nao exige login, entao e a porta de entrada: tudo aqui e limitado.
+function pedirCodigo(req) {
+  var email = String(req.email || '').trim().toLowerCase();
+  if (!email || email.indexOf('@') < 0) throw erro('DADO', 'Informe um e-mail valido');
+
+  var cache = CacheService.getScriptCache();
+  var props = PropertiesService.getScriptProperties();
+
+  // trava por e-mail
+  var chaveQtd = 'qtd_' + _hash(email);
+  var qtd = _num(cache.get(chaveQtd));
+  if (qtd >= LIMITE_POR_EMAIL_HORA) {
+    throw erro('MUITAS', 'Voce ja pediu varios codigos. Espere alguns minutos.');
+  }
+
+  // trava geral do dia, para ninguem queimar a cota de e-mail da conta
+  var hojeTxt = _ymd(new Date());
+  var totalHoje = _num(props.getProperty('envios_' + hojeTxt));
+  if (totalHoje >= LIMITE_GERAL_DIA) {
+    throw erro('MUITAS', 'Limite de envios de hoje atingido. Entre com a conta Google ou tente amanha.');
+  }
+
+  var u = usuarioPor(email);
+  var ativo = u && String(u.Ativo) !== 'false';
+
+  if (ativo) {
+    var codigo = _codigoNovo();
+    cache.put('cod_' + _hash(email), JSON.stringify({
+      h: _hash(email + ':' + codigo), exp: Date.now() + CODIGO_VALE_MIN * 60000, erros: 0
+    }), CODIGO_VALE_MIN * 60);
+
+    MailApp.sendEmail({
+      to: email,
+      subject: codigo + ' e o seu codigo de acesso',
+      body: 'Ola' + (u.Nome ? ' ' + u.Nome : '') + ',\n\n' +
+            'Seu codigo para entrar no app de orcamentos:\n\n    ' + codigo + '\n\n' +
+            'Ele vale por ' + CODIGO_VALE_MIN + ' minutos e serve uma vez so.\n\n' +
+            'Se nao foi voce que pediu, ignore este e-mail: sem o codigo ninguem entra.'
+    });
+
+    props.setProperty('envios_' + hojeTxt, String(totalHoje + 1));
+    registrar(email, 'codigo_enviado', 'Sessoes', email, '', '', '');
+  } else {
+    // E-mail desconhecido nao recebe nada, e a resposta e a mesma de quem recebeu:
+    // de fora nao da para descobrir quem tem acesso a oficina.
+    registrar(email, 'codigo_negado', 'Sessoes', email, '', 'e-mail sem acesso', '');
+  }
+
+  cache.put(chaveQtd, String(qtd + 1), 3600);
+  return { enviado: true, validadeMin: CODIGO_VALE_MIN };
+}
+
+// Confere o codigo e devolve a sessao.
+function entrarComCodigo(req) {
+  var email = String(req.email || '').trim().toLowerCase();
+  var codigo = String(req.codigo || '').replace(/\D/g, '');
+  if (!email || !codigo) throw erro('DADO', 'Informe o e-mail e o codigo');
+
+  var cache = CacheService.getScriptCache();
+  var chave = 'cod_' + _hash(email);
+  var guardado = cache.get(chave);
+  if (!guardado) throw erro('CODIGO', 'Codigo expirado. Peca um novo.');
+
+  var d = JSON.parse(guardado);
+  if (Date.now() > d.exp) { cache.remove(chave); throw erro('CODIGO', 'Codigo expirado. Peca um novo.'); }
+  if (d.erros >= CODIGO_TENTATIVAS) { cache.remove(chave); throw erro('CODIGO', 'Codigo bloqueado por erros. Peca um novo.'); }
+
+  if (d.h !== _hash(email + ':' + codigo)) {
+    d.erros++;
+    cache.put(chave, JSON.stringify(d), CODIGO_VALE_MIN * 60);
+    throw erro('CODIGO', 'Codigo errado. Faltam ' + (CODIGO_TENTATIVAS - d.erros) + ' tentativa(s).');
+  }
+
+  cache.remove(chave);                       // um codigo serve uma vez so
+  var u = usuarioPor(email);
+  if (!u || String(u.Ativo) === 'false') throw erro('NAO_AUTORIZADO', 'Este e-mail nao tem acesso.');
+
+  var token = Utilities.getUuid().replace(/-/g, '') + Utilities.getUuid().replace(/-/g, '');
+  limparSessoesVelhas();
+  gravar('Sessoes', {
+    TokenHash: _hash(token), Email: email, CriadaEm: new Date().toISOString(),
+    ExpiraEmMs: Date.now() + SESSAO_DIAS * 86400000,
+    Aparelho: String(req.aparelho || '').slice(0, 80), UltimoUsoMs: Date.now()
+  }, 'TokenHash');
+  registrar(email, 'entrou', 'Sessoes', '', '', 'codigo por e-mail', '');
+
+  return {
+    token: token,
+    usuario: { email: email, nome: u.Nome, papel: String(u.Papel).toLowerCase() === 'dono' ? 'dono' : 'funcionario' }
+  };
+}
+
+// Quem e o dono desta sessao. Tambem renova o "ultimo uso".
+function emailDaSessao(token) {
+  var h = _hash(token);
+  var s = aba('Sessoes');
+  if (s.getLastRow() < 2) throw erro('NAO_AUTORIZADO', 'Sessao nao encontrada. Entre de novo.');
+
+  var cab = cabecalhoDe(s);
+  var iH = cab.indexOf('TokenHash'), iEmail = cab.indexOf('Email');
+  var iExp = cab.indexOf('ExpiraEmMs'), iUso = cab.indexOf('UltimoUsoMs');
+  var v = s.getRange(2, 1, s.getLastRow() - 1, cab.length).getValues();
+
+  for (var i = 0; i < v.length; i++) {
+    if (String(v[i][iH]) !== h) continue;
+    if (_num(v[i][iExp]) < Date.now()) {
+      s.deleteRow(i + 2);
+      throw erro('NAO_AUTORIZADO', 'Sua sessao expirou. Entre de novo.');
+    }
+    // grava o uso no maximo uma vez por hora, para nao escrever na planilha a cada clique
+    if (Date.now() - _num(v[i][iUso]) > 3600000) s.getRange(i + 2, iUso + 1).setValue(Date.now());
+    return String(v[i][iEmail]).trim().toLowerCase();
+  }
+  throw erro('NAO_AUTORIZADO', 'Sessao nao encontrada. Entre de novo.');
+}
+
+// Sair: apaga a sessao deste aparelho. Sem isso, "fica logado" nao teria volta.
+function sair(req, u) {
+  var h = _hash(String(req.token || ''));
+  var s = aba('Sessoes');
+  if (s.getLastRow() < 2) return { saiu: true };
+  var cab = cabecalhoDe(s);
+  var iH = cab.indexOf('TokenHash');
+  var v = s.getRange(2, iH + 1, s.getLastRow() - 1, 1).getValues();
+  for (var i = v.length - 1; i >= 0; i--) {
+    if (String(v[i][0]) === h) s.deleteRow(i + 2);
+  }
+  registrar(u.Email, 'saiu', 'Sessoes', '', '', '', '');
+  return { saiu: true };
+}
+
+// O dono pode derrubar todas as sessoes de alguem (celular perdido, sai da equipe).
+function encerrarSessoes(req, u) {
+  var alvo = String(req.email || '').trim().toLowerCase();
+  if (!alvo) throw erro('DADO', 'Informe o e-mail');
+  var s = aba('Sessoes');
+  if (s.getLastRow() < 2) return { encerradas: 0 };
+  var cab = cabecalhoDe(s);
+  var iEmail = cab.indexOf('Email');
+  var v = s.getRange(2, iEmail + 1, s.getLastRow() - 1, 1).getValues();
+  var n = 0;
+  for (var i = v.length - 1; i >= 0; i--) {
+    if (String(v[i][0]).trim().toLowerCase() === alvo) { s.deleteRow(i + 2); n++; }
+  }
+  registrar(u.Email, 'sessoes_encerradas', 'Sessoes', alvo, '', String(n), req.motivo || '');
+  return { encerradas: n };
+}
+
+function limparSessoesVelhas() {
+  var s = aba('Sessoes');
+  if (s.getLastRow() < 2) return;
+  var cab = cabecalhoDe(s);
+  var iExp = cab.indexOf('ExpiraEmMs');
+  var v = s.getRange(2, iExp + 1, s.getLastRow() - 1, 1).getValues();
+  for (var i = v.length - 1; i >= 0; i--) {
+    if (_num(v[i][0]) < Date.now()) s.deleteRow(i + 2);
+  }
+}
+
+function _hash(txt) {
+  return Utilities.base64EncodeWebSafe(
+    Utilities.computeDigest(Utilities.DigestAlgorithm.SHA_256, String(txt)));
+}
+
+// Digitos vindos do gerador de UUID, que e bem melhor que Math.random para isto.
+function _codigoNovo() {
+  var bruto = Utilities.getUuid() + Utilities.getUuid();
+  var d = String(bruto).replace(/\D/g, '');
+  while (d.length < 6) d += String(Math.floor(Math.random() * 10));
+  return d.slice(-6);
 }
 
 function usuarioPor(email) {

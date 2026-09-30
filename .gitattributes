@@ -1,0 +1,2 @@
+# scripts precisam de fim de linha LF, senao o Windows quebra o "#!/bin/sh"
+*.sh text eol=lf

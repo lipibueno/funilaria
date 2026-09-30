@@ -10,6 +10,21 @@ acessada por uma API em Apps Script.
 - `testes/` — testes das regras de dinheiro e permissão (`node testes/testes.js`)
 - `_versao-anterior/` — a v3, antes do login
 
+## Publicar
+
+Um comando, no Git Bash, dentro da pasta do projeto:
+
+```bash
+./publicar.sh "o que mudou"
+```
+
+Ele roda os testes e para se algum falhar, avisa se você esqueceu de trocar o número do
+cache no `sw.js`, envia para o GitHub e depois **confere no ar** se o que subiu é o mesmo
+da sua pasta. Só diz "publicado" quando bate.
+
+O `Codigo.gs` é o único que não vai por aí: ele precisa ser colado no Apps Script e
+publicado em **Implantar › Gerenciar implantações › Nova versão**.
+
 ## Rodar na máquina
 
 Precisa ser por http, não abrindo o arquivo direto, senão o login do Google não carrega:

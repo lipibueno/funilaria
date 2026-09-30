@@ -162,7 +162,7 @@ orçamento repetido.
 colunas que faltarem, sem apagar nem reordenar o que já existe. Isso foi testado com
 uma planilha na estrutura antiga e com dados dentro.
 
-- `Orcamentos`: `Versao`, `Travado`, `CriadoPor`, `AlteradoPor`, `MotivoCancelamento`, `ChaveIdem`
+- `Orcamentos`: `Versao`, `Travado`, `CriadoPor`, `AlteradoPor`, `MotivoCancelamento`, `ChaveIdem`, `ValorCobrado`
 - `Pagamentos`: `Estorno`, `EstornoDeID`, `LancadoPor`, `LancadoEmMs`, `Motivo`
 - `Servicos`: `Ativo`
 - abas novas: `Usuarios`, `Log`
@@ -236,6 +236,86 @@ onde parou. Rascunho com mais de uma semana é descartado.
 
 ---
 
+## Instalar para outra oficina
+
+Cada oficina é **uma planilha + uma implantação do Apps Script**. O aplicativo
+publicado é o mesmo para todo mundo: `https://lipibueno.github.io/funilaria/`. O que
+separa uma oficina da outra é a URL `/exec` que cada aparelho tem em **Ajustes**.
+
+Para montar uma nova:
+
+1. **Copie a planilha**: abra a sua, **Arquivo → Fazer uma cópia**. A cópia fica na
+   conta de quem vai usar (ou na sua, se for você que administra).
+2. **Zere os dados** da cópia — veja a seção seguinte.
+3. Na cópia: **Extensões → Apps Script**, cole o `Codigo.gs`, rode `autorizar`,
+   e publique (**Implantar → Nova implantação → App da Web**, Executar como: Eu,
+   Quem pode acessar: Qualquer pessoa). Guarde a nova URL `/exec`.
+4. Ajuste os dados da oficina na aba **`Config`**: nome, telefone, endereço, documento.
+5. No celular da pessoa, abra o mesmo endereço do app, vá em **Ajustes** e cole a URL
+   `/exec` **da planilha dela**.
+
+Ponto importante: **o `CLIENT_ID` pode continuar o mesmo**. Ele identifica o
+*aplicativo*, não os dados. Duas oficinas com o mesmo `CLIENT_ID` e planilhas
+diferentes não se enxergam — cada Apps Script só lê a planilha à qual está preso, e só
+aceita quem está na aba `Usuarios` dela.
+
+O que você precisa fazer no Google Cloud é adicionar o e-mail de cada pessoa em
+**Público-alvo → Usuários de teste**, enquanto o app estiver em modo de teste.
+
+> Se preferir separar de vez, a outra pessoa cria o próprio cliente OAuth e troca o
+> `CLIENT_ID` nos dois arquivos, publicando o app numa conta GitHub dela. Só vale a
+> pena se forem negócios independentes.
+
+## Zerar a planilha
+
+A função **`limparDados`** no `Codigo.gs` faz isso. Ela é de propósito **não exposta na
+API**: só roda à mão, no editor, e sem confirmação explícita não apaga nada.
+
+1. No editor, encontre a função `limparDados` (perto do topo).
+2. Troque a linha:
+   ```js
+   var CONFIRMA = confirmacao !== undefined ? confirmacao : '';
+   ```
+   por:
+   ```js
+   var CONFIRMA = confirmacao !== undefined ? confirmacao : 'APAGAR TUDO';
+   ```
+3. Selecione `limparDados` na lista de funções e **Executar**.
+4. **Volte a linha como estava** e salve, para ninguém rodar sem querer.
+
+Apaga: orçamentos, itens, pagamentos, clientes e o histórico. Mantém: a lista de
+serviços, os dados da oficina e quem tem acesso. A numeração volta para 1.
+
+Para limpar **também** serviços, `Config` e `Usuarios`, troque `tambemCadastros` para
+`true` na mesma linha de cima. Depois rode `autorizar` de novo para se recadastrar
+como dono.
+
+> Isso apaga de verdade, sem desfazer. Faça **Arquivo → Fazer uma cópia** antes se a
+> planilha tiver algo que você queira guardar.
+
+## Valor cobrado
+
+O orçamento tem dois números diferentes, de propósito:
+
+- **Serviços** — a soma da lista, o preço de tabela.
+- **Valor cobrado** — o que foi fechado com o cliente.
+
+Quando o valor cobrado está preenchido, é ele que manda: o saldo, o limite do
+pagamento, o PDF e o "falta receber" saem dele. A lista de serviços continua registrada
+com os valores cheios, e a diferença aparece como **Desconto**.
+
+Deixar vazio significa cobrar a soma dos serviços.
+
+Quem pode mexer segue a mesma regra das outras alterações: livre enquanto o orçamento
+não estiver pago e fechado; depois disso, só o dono, com motivo, e fica no `Log`.
+
+## Fotos no PDF
+
+As fotos anexadas aos serviços entram no fim do PDF, duas por linha, com a descrição
+embaixo. Elas são buscadas pelo servidor (ação `baixarFoto`), porque o Drive não libera
+a imagem direto para o navegador. Foto que falhar é pulada: o orçamento sai assim
+mesmo, sem travar o envio.
+
 ## Decisão pendente: as fotos são públicas por link
 
 `enviarFoto` marca cada foto como **"qualquer pessoa com o link"** no Drive. É o que
@@ -274,6 +354,6 @@ com um simulador do Apps Script:
 node testes/testes.js
 ```
 
-São 54 casos cobrindo login, papéis, concorrência, travamento após pagamento, estorno,
+São 68 casos cobrindo login, papéis, concorrência, travamento após pagamento, estorno,
 cancelamento, limites de valor e a idempotência da fila offline. Há também `node testes/migra.js`, que sobe uma planilha
 na estrutura antiga com dados e confere que a migração preserva tudo.

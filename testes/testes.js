@@ -366,6 +366,111 @@ t('BUG ANTIGO: salvar o orcamento nao apaga mais pagamento de outro aparelho', (
   if (r.ok) igual(r.data.orcamento.Pago, 200, 'total pago apos salvar:');
 });
 
+console.log('\n--- valor cobrado (preco fechado com o cliente) ---');
+t('sem valor cobrado, cobra a soma dos servicos', () => {
+  const a = appPronto();
+  const o = criarOrc(a, 'func@oficina.com', [{ Descricao: 'x', Qtd: 1, Valor: 1200 }]);
+  igual(o.Total, 1200); igual(o.Saldo, 1200); igual(o.ValorCobrado, '');
+});
+
+t('valor cobrado manda no saldo, e os servicos continuam registrados', () => {
+  const a = appPronto();
+  let o = criarOrc(a, 'func@oficina.com', [{ Descricao: 'x', Qtd: 1, Valor: 1200 }]);
+  const r = a.chamar('salvarOrcamento', 'func@oficina.com', {
+    orcamento: { ID: o.ID, Versao: o.Versao, ClienteNome: 'Maria', Placa: 'ABC1D23', ValorCobrado: 1000 },
+    itens: [{ Descricao: 'x', Qtd: 1, Valor: 1200 }] });
+  if (!r.ok) throw new Error(r.error);
+  igual(r.data.orcamento.Total, 1200, 'a soma dos servicos nao muda:');
+  igual(r.data.orcamento.ValorCobrado, 1000);
+  igual(r.data.orcamento.Saldo, 1000, 'o saldo sai do valor cobrado:');
+});
+
+t('pagar o valor cobrado quita, mesmo sendo menor que os servicos', () => {
+  const a = appPronto();
+  let o = criarOrc(a, 'func@oficina.com', [{ Descricao: 'x', Qtd: 1, Valor: 1200 }]);
+  o = a.chamar('salvarOrcamento', 'func@oficina.com', {
+    orcamento: { ID: o.ID, Versao: o.Versao, ClienteNome: 'Maria', Placa: 'ABC1D23', ValorCobrado: 1000 },
+    itens: [{ Descricao: 'x', Qtd: 1, Valor: 1200 }] }).data.orcamento;
+  const r = a.chamar('registrarPagamento', 'func@oficina.com',
+    { orcamentoId: o.ID, valor: 1000, forma: 'Pix' });
+  if (!r.ok) throw new Error(r.error);
+  igual(r.data.orcamento.Saldo, 0); igual(r.data.orcamento.Pago, 1000);
+});
+
+t('nao aceita pagamento acima do valor cobrado', () => {
+  const a = appPronto();
+  let o = criarOrc(a, 'func@oficina.com', [{ Descricao: 'x', Qtd: 1, Valor: 1200 }]);
+  o = a.chamar('salvarOrcamento', 'func@oficina.com', {
+    orcamento: { ID: o.ID, Versao: o.Versao, ClienteNome: 'Maria', Placa: 'ABC1D23', ValorCobrado: 1000 },
+    itens: [{ Descricao: 'x', Qtd: 1, Valor: 1200 }] }).data.orcamento;
+  // 1200 era o total dos servicos, mas o combinado foi 1000
+  recusa(() => a.chamar('registrarPagamento', 'func@oficina.com',
+    { orcamentoId: o.ID, valor: 1200, forma: 'Pix' }), 'VALOR');
+});
+
+t('tirar o valor cobrado volta a cobrar a soma dos servicos', () => {
+  const a = appPronto();
+  let o = criarOrc(a, 'func@oficina.com', [{ Descricao: 'x', Qtd: 1, Valor: 1200 }]);
+  o = a.chamar('salvarOrcamento', 'func@oficina.com', {
+    orcamento: { ID: o.ID, Versao: o.Versao, ClienteNome: 'Maria', Placa: 'ABC1D23', ValorCobrado: 1000 },
+    itens: [{ Descricao: 'x', Qtd: 1, Valor: 1200 }] }).data.orcamento;
+  const r = a.chamar('salvarOrcamento', 'func@oficina.com', {
+    orcamento: { ID: o.ID, Versao: o.Versao, ClienteNome: 'Maria', Placa: 'ABC1D23', ValorCobrado: '' },
+    itens: [{ Descricao: 'x', Qtd: 1, Valor: 1200 }] });
+  igual(r.data.orcamento.Saldo, 1200);
+});
+
+t('valor cobrado sobrevive a um salvar que nao o envia', () => {
+  const a = appPronto();
+  let o = criarOrc(a, 'func@oficina.com', [{ Descricao: 'x', Qtd: 1, Valor: 1200 }]);
+  o = a.chamar('salvarOrcamento', 'func@oficina.com', {
+    orcamento: { ID: o.ID, Versao: o.Versao, ClienteNome: 'Maria', Placa: 'ABC1D23', ValorCobrado: 1000 },
+    itens: [{ Descricao: 'x', Qtd: 1, Valor: 1200 }] }).data.orcamento;
+  const r = a.chamar('salvarOrcamento', 'func@oficina.com', {
+    orcamento: { ID: o.ID, Versao: o.Versao, ClienteNome: 'Maria', Placa: 'ABC1D23', Obs: 'sem mandar o campo' },
+    itens: [{ Descricao: 'x', Qtd: 1, Valor: 1200 }] });
+  igual(r.data.orcamento.ValorCobrado, 1000, 'nao podia ter sumido:');
+  igual(r.data.orcamento.Saldo, 1000);
+});
+
+t('quitado pelo valor cobrado fecha o orcamento', () => {
+  const a = appPronto();
+  let o = criarOrc(a, 'func@oficina.com', [{ Descricao: 'x', Qtd: 1, Valor: 1200 }]);
+  o = a.chamar('salvarOrcamento', 'func@oficina.com', {
+    orcamento: { ID: o.ID, Versao: o.Versao, ClienteNome: 'Maria', Placa: 'ABC1D23', ValorCobrado: 1000 },
+    itens: [{ Descricao: 'x', Qtd: 1, Valor: 1200 }] }).data.orcamento;
+  ['Aprovado','Em execucao','Pronto p/ entrega'].forEach(s=>{
+    o = a.chamar('mudarStatus', 'func@oficina.com', { id: o.ID, status: s, versao: o.Versao }).data;
+  });
+  o = a.chamar('mudarStatus', 'func@oficina.com', { id: o.ID, status: 'Finalizado', versao: o.Versao }).data;
+  igual(o.Status, 'Aguardando pagamento');
+  const r = a.chamar('registrarPagamento', 'func@oficina.com', { orcamentoId: o.ID, valor: 1000, forma: 'Pix' });
+  igual(r.data.orcamento.Status, 'Finalizado');
+  igual(r.data.orcamento.Travado, 'true');
+});
+
+console.log('\n--- arquivar orcamento que o cliente nao fechou ---');
+t('da para arquivar ainda em "Orcamento"', () => {
+  const a = appPronto();
+  const o = criarOrc(a, 'func@oficina.com');
+  igual(o.Status, 'Orcamento');
+  const r = a.chamar('arquivar', 'func@oficina.com', { id: o.ID, arquivar: true });
+  if (!r.ok) throw new Error(r.error);
+  igual(r.data.Arquivado, 'true');
+  const ativos = a.chamar('carregar', 'dono@oficina.com').data.orcamentos;
+  if (ativos.some(x => String(x.ID) === String(o.ID))) throw new Error('devia ter saido do painel');
+});
+
+t('arquivado continua na planilha e da para desarquivar', () => {
+  const a = appPronto();
+  const o = criarOrc(a, 'func@oficina.com');
+  a.chamar('arquivar', 'func@oficina.com', { id: o.ID, arquivar: true });
+  const todos = a.chamar('carregar', 'dono@oficina.com', { incluirArquivados: true }).data.orcamentos;
+  if (!todos.some(x => String(x.ID) === String(o.ID))) throw new Error('sumiu da planilha');
+  const r = a.chamar('arquivar', 'func@oficina.com', { id: o.ID, arquivar: false });
+  igual(r.data.Arquivado, 'false');
+});
+
 console.log('\n--- travado depois de pago ---');
 function orcQuitado(a){
   let o = ateProntoEntrega(a, 'func@oficina.com');
@@ -566,6 +671,60 @@ t('funcionario nao le o historico', () => {
 t('acao inexistente e recusada', () => {
   const a = appPronto();
   recusa(() => a.chamar('apagarTudo', 'dono@oficina.com', {}), 'ACAO');
+});
+
+
+console.log('\n--- zerar a planilha para outra oficina ---');
+t('limparDados nao faz nada sem a confirmacao', () => {
+  const a = appPronto();
+  criarOrc(a, 'func@oficina.com');
+  const r = a.g.limparDados();
+  if (!/Nada foi apagado/.test(r)) throw new Error('devia ter recusado: ' + r);
+  igual(a.g.ler('Orcamentos').length, 1, 'o orcamento tinha que continuar la:');
+});
+
+t('com a confirmacao, apaga movimento e preserva servicos e acessos', () => {
+  const a = appPronto();
+  a.chamar('salvarServico', 'dono@oficina.com', { servico: { Descricao: 'Polimento', ValorPadrao: 120 } });
+  const o = criarOrc(a, 'func@oficina.com');
+  a.chamar('registrarPagamento', 'func@oficina.com', { orcamentoId: o.ID, valor: 50, forma: 'Pix' });
+  // libera a trava do mesmo jeito que a pessoa faria no editor
+  const r = a.g.limparDados('APAGAR TUDO');
+  if (!/Planilha zerada/.test(r)) throw new Error(r);
+  igual(a.g.ler('Orcamentos').length, 0, 'orcamentos:');
+  igual(a.g.ler('Itens').length, 0, 'itens:');
+  igual(a.g.ler('Pagamentos').length, 0, 'pagamentos:');
+  igual(a.g.ler('Clientes').length, 0, 'clientes:');
+  if (!a.g.ler('Servicos').length) throw new Error('a lista de servicos nao devia ter sido apagada');
+  if (!a.g.ler('Usuarios').length) throw new Error('os acessos nao deviam ter sido apagados');
+});
+
+t('depois de zerar, a numeracao recomeca em 1', () => {
+  const a = appPronto();
+  criarOrc(a, 'func@oficina.com'); criarOrc(a, 'func@oficina.com');
+  a.g.limparDados('APAGAR TUDO');
+  igual(criarOrc(a, 'func@oficina.com').Numero, 1);
+});
+
+t('zerarTudo tambem limpa servicos e acessos', () => {
+  const a = appPronto();
+  a.chamar('salvarServico', 'dono@oficina.com', { servico: { Descricao: 'X', ValorPadrao: 1 } });
+  criarOrc(a, 'func@oficina.com');
+  a.g.limparDados('APAGAR TUDO', true);
+  igual(a.g.ler('Servicos').length, 0, 'servicos:');
+  igual(a.g.ler('Usuarios').length, 0, 'usuarios:');
+  // e o proximo a entrar volta a ser o dono da planilha
+  const r = a.chamar('carregar', 'dono@oficina.com');
+  if (!r.ok) throw new Error(r.error);
+  igual(r.data.usuario.papel, 'dono');
+});
+
+t('zerar nao quebra a estrutura: da para usar em seguida', () => {
+  const a = appPronto();
+  criarOrc(a, 'func@oficina.com');
+  a.g.limparDados('APAGAR TUDO');
+  const o = criarOrc(a, 'func@oficina.com', [{ Descricao: 'y', Qtd: 2, Valor: 50 }]);
+  igual(o.Numero, 1); igual(o.Total, 100); igual(o.Saldo, 100);
 });
 
 console.log('\n' + ok + ' passaram, ' + falhou + ' falharam\n');

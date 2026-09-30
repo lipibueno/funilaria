@@ -34,6 +34,7 @@ class Folha {
   getDataRange(){ return this.getRange(1, 1, Math.max(1, this.getLastRow()), Math.max(1, this.getLastColumn())); }
   appendRow(a){ this.g[this.getLastRow()] = a.slice(); this._ext(this.getLastRow(), a.length); }
   deleteRow(i){ this.g.splice(i - 1, 1); }
+  deleteRows(i, n){ this.g.splice(i - 1, n); }
   setFrozenRows(){}
 }
 

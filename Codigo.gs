@@ -23,7 +23,7 @@ var PASTA_FOTOS = '';            // ID de uma pasta do Drive; vazio = cria sozin
 
 /* ===================== estrutura da planilha ===================== */
 
-var ESTRUTURA_V = '5';
+var ESTRUTURA_V = '6';
 var ESTRUTURA = {
   Config:     ['Chave','Valor'],
   Usuarios:   ['Email','Nome','Papel','Ativo'],
@@ -31,7 +31,7 @@ var ESTRUTURA = {
   Servicos:   ['ID','Descricao','Categoria','ValorPadrao','Ativo'],
   Orcamentos: ['ID','Numero','Data','ClienteID','ClienteNome','Telefone','Placa','Modelo','Ano','Cor',
                'Status','Total','Pago','Saldo','Arquivado','Obs','AtualizadoEm','Versao','Travado',
-               'CriadoPor','AlteradoPor','MotivoCancelamento','ChaveIdem'],
+               'CriadoPor','AlteradoPor','MotivoCancelamento','ChaveIdem','ValorCobrado'],
   Itens:      ['ID','OrcamentoID','Ordem','Descricao','Qtd','Valor','Subtotal','FotoURL'],
   Pagamentos: ['ID','OrcamentoID','Data','Valor','Forma','Obs','Estorno','EstornoDeID',
                'LancadoPor','LancadoEmMs','Motivo'],
@@ -114,6 +114,65 @@ function autorizar() {
   var txt = linhas.join('\n');
   Logger.log(txt);
   return txt;
+}
+
+/**
+ * ZERA A PLANILHA para uma oficina comecar do nada.
+ *
+ * NAO e exposta na API de proposito: so roda aqui no editor, a mao. Para usar,
+ * troque a linha abaixo por CONFIRMA = 'APAGAR TUDO' e rode a funcao.
+ * Depois volte a linha como estava, para ninguem rodar sem querer.
+ *
+ * Apaga: orcamentos, itens, pagamentos, clientes e o historico.
+ * Mantem: a lista de servicos, os dados da oficina (Config) e quem tem acesso.
+ * Para zerar tambem essas, passe zerarTudo = true.
+ */
+function limparDados(confirmacao, tambemCadastros) {
+  var CONFIRMA = confirmacao !== undefined ? confirmacao : '';   // <<< troque por 'APAGAR TUDO'
+  var zerarTudo = tambemCadastros !== undefined ? !!tambemCadastros : false;
+
+  // Rodar pelo botao do editor nao passa argumento, entao cai na linha acima:
+  // sem editar o codigo, nada e apagado.
+  if (CONFIRMA !== 'APAGAR TUDO') {
+    return 'Nada foi apagado. Para confirmar, edite a funcao limparDados e ponha ' +
+           "CONFIRMA = 'APAGAR TUDO', depois rode de novo.";
+  }
+
+  garantirEstrutura();
+  var abas = ['Orcamentos', 'Itens', 'Pagamentos', 'Clientes', 'Log'];
+  if (zerarTudo) abas = abas.concat(['Servicos', 'Usuarios']);
+
+  var apagadas = [];
+  abas.forEach(function (nome) {
+    var s = aba(nome);
+    var n = s.getLastRow() - 1;
+    if (n > 0) s.deleteRows(2, n);          // linha 1 e o cabecalho, fica
+    apagadas.push(nome + ': ' + Math.max(0, n));
+  });
+
+  // a numeracao volta para 1
+  var cfg = aba('Config');
+  var v = cfg.getDataRange().getValues();
+  var achou = false;
+  for (var i = 1; i < v.length; i++) {
+    if (v[i][0] === 'proximo_numero') { cfg.getRange(i + 1, 2).setValue(1); achou = true; }
+  }
+  if (!achou) cfg.appendRow(['proximo_numero', 1]);
+
+  if (zerarTudo) {
+    var manter = ['oficina_nome', 'oficina_telefone', 'oficina_endereco', 'oficina_doc', 'validade_dias'];
+    for (var j = v.length - 1; j >= 1; j--) {
+      if (manter.indexOf(String(v[j][0])) >= 0) cfg.getRange(j + 1, 2).setValue('');
+    }
+    apagadas.push('Config: valores limpos');
+  }
+
+  var msg = 'Planilha zerada.\n- ' + apagadas.join('\n- ') +
+            '\n- proximo_numero: 1' +
+            '\n\nAgora rode autorizar() para se cadastrar como dono de novo.' +
+            '\nE volte CONFIRMA para vazio no codigo.';
+  Logger.log(msg);
+  return msg;
 }
 
 /* ===================== entrada ===================== */
@@ -208,7 +267,8 @@ var ACOES = {
   desativarServico:   { fn: desativarServico,   papeis: ['dono'],                escreve: true },
   salvarCliente:      { fn: salvarCliente,      papeis: ['dono', 'funcionario'], escreve: true },
   salvarUsuario:      { fn: salvarUsuario,      papeis: ['dono'],                escreve: true },
-  enviarFoto:         { fn: enviarFoto,         papeis: ['dono', 'funcionario'], escreve: false }
+  enviarFoto:         { fn: enviarFoto,         papeis: ['dono', 'funcionario'], escreve: false },
+  baixarFoto:         { fn: baixarFoto,         papeis: ['dono', 'funcionario'], escreve: false }
 };
 
 /* ===================== login ===================== */
@@ -394,11 +454,13 @@ function salvarOrcamento(req, u) {
     o = {
       ID: antes.ID, Numero: antes.Numero, Status: antes.Status, Versao: _num(antes.Versao),
       CriadoPor: antes.CriadoPor, Arquivado: antes.Arquivado,
-      MotivoCancelamento: antes.MotivoCancelamento, ChaveIdem: antes.ChaveIdem
+      MotivoCancelamento: antes.MotivoCancelamento, ChaveIdem: antes.ChaveIdem,
+      // mantido se o app nao mandar; a lista de campos abaixo sobrescreve quando vier
+      ValorCobrado: antes.ValorCobrado
     };
   }
 
-  ['Data','ClienteID','ClienteNome','Telefone','Placa','Modelo','Ano','Cor','Obs'].forEach(function (c) {
+  ['Data','ClienteID','ClienteNome','Telefone','Placa','Modelo','Ano','Cor','Obs','ValorCobrado'].forEach(function (c) {
     if (env[c] !== undefined) o[c] = env[c];
   });
   if (!o.Data) o.Data = _ymd(new Date());
@@ -442,10 +504,14 @@ function recalcular(o, u) {
   });
   var pago = somaPagamentos(o.ID);
   o.Total = _arred(total);
+  // ValorCobrado e o preco fechado com o cliente. Vazio ou zero = cobra a soma
+  // dos servicos. O saldo sempre sai do que vai ser cobrado, nao da lista.
+  o.ValorCobrado = _num(o.ValorCobrado) > 0 ? _arred(o.ValorCobrado) : '';
+  var cobravel = aCobrar(o);
   o.Pago = _arred(pago);
-  o.Saldo = _arred(total - pago);
+  o.Saldo = _arred(cobravel - pago);
   if (o.Status === 'Aguardando pagamento' && o.Saldo <= 0) o.Status = 'Finalizado';
-  o.Travado = o.Status === 'Finalizado' && o.Saldo <= 0 && o.Total > 0;
+  o.Travado = o.Status === 'Finalizado' && o.Saldo <= 0 && cobravel > 0;
   o.Versao = _num(o.Versao) + 1;
   o.AtualizadoEm = new Date().toISOString();
   o.AlteradoPor = u.Email;
@@ -531,9 +597,15 @@ function porChaveIdem(idem) {
   return achou;
 }
 
+// Quanto o cliente vai pagar: o valor fechado, se houver; senao a soma dos servicos.
+function aCobrar(o) {
+  var v = _num(o.ValorCobrado);
+  return _arred(v > 0 ? v : _num(o.Total));
+}
+
 function estaTravado(o) {
   return String(o.Travado) === 'true' ||
-         (o.Status === 'Finalizado' && _num(o.Saldo) <= 0 && _num(o.Total) > 0);
+         (o.Status === 'Finalizado' && _num(o.Saldo) <= 0 && aCobrar(o) > 0);
 }
 
 function exigirDono(u, msg) {
@@ -559,7 +631,7 @@ function registrarPagamento(req, u) {
 
   var valor = _arred(_num(req.valor));
   if (!(valor > 0)) throw erro('VALOR', 'Informe um valor maior que zero');
-  var saldo = _arred(_num(o.Total) - somaPagamentos(o.ID));
+  var saldo = _arred(aCobrar(o) - somaPagamentos(o.ID));
   if (saldo <= 0) throw erro('VALOR', 'Este orcamento ja esta totalmente pago');
   if (valor > saldo + 0.005) {
     throw erro('VALOR', 'O valor e maior que o saldo de ' + saldo.toFixed(2).replace('.', ',') +
@@ -704,6 +776,33 @@ function enviarFoto(req, u) {
   return { url: 'https://drive.google.com/thumbnail?id=' + arq.getId() + '&sz=w1000', id: arq.getId() };
 }
 
+// Devolve a foto em base64 para o app montar o PDF.
+// O navegador nao consegue ler a imagem do Drive direto (o Drive nao manda os
+// cabecalhos de CORS), entao quem busca e o servidor, que ja tem a permissao.
+function baixarFoto(req, u) {
+  var id = String(req.id || '').trim();
+  if (!id) {
+    var m = String(req.url || '').match(/[?&]id=([\w-]+)/) || String(req.url || '').match(/\/d\/([\w-]+)/);
+    id = m ? m[1] : '';
+  }
+  if (!id) throw erro('DADO', 'Foto sem identificacao');
+
+  var blob;
+  try {
+    blob = DriveApp.getFileById(id).getBlob();
+  } catch (e) {
+    throw erro('NAO_ENCONTRADO', 'Foto nao encontrada no Drive');
+  }
+  var bytes = blob.getBytes();
+  if (bytes.length > 6 * 1024 * 1024) throw erro('DADO', 'Foto grande demais para o PDF');
+
+  return {
+    id: id,
+    mime: blob.getContentType() || 'image/jpeg',
+    base64: Utilities.base64Encode(bytes)
+  };
+}
+
 function pastaFotos() {
   if (PASTA_FOTOS) return DriveApp.getFolderById(PASTA_FOTOS);
   var raiz = pastaPorNome(DriveApp, 'Fotos Orcamentos');
@@ -818,7 +917,7 @@ function registrar(email, acao, entidade, id, antes, depois, motivo) {
 }
 
 function resumo(o) {
-  var campos = ['Numero','Status','Total','Pago','Saldo','Placa','ClienteNome','Arquivado',
+  var campos = ['Numero','Status','Total','ValorCobrado','Pago','Saldo','Placa','ClienteNome','Arquivado',
                 'Nome','Descricao','ValorPadrao'];
   var p = [];
   campos.forEach(function (c) { if (o[c] !== undefined && o[c] !== '') p.push(c + '=' + o[c]); });

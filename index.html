@@ -95,6 +95,8 @@ input:focus,select:focus,textarea:focus{border-color:var(--ink);box-shadow:0 0 0
 .foto{margin-top:10px;display:flex;gap:10px;align-items:center}
 .foto img{width:64px;height:64px;object-fit:cover;border-radius:var(--r);border:1px solid var(--line)}
 .fotobtn{border:1px dashed var(--line);border-radius:var(--r);padding:10px 14px;font-size:13px;font-weight:600;color:var(--steel);background:var(--paper)}
+.foto-acoes{display:flex;flex-wrap:wrap;gap:8px;margin-top:10px}
+.foto-acoes .fotobtn{flex:1;min-width:135px}
 
 /* sugestões */
 .sug{position:relative}
@@ -260,6 +262,7 @@ nav button[aria-current="true"] .i{transform:translateY(-1px)}
 .svc span{font-size:13px;font-weight:800;color:var(--steel);margin-top:3px}
 .svc.posto{border-color:var(--ok);background:#EDF8F2}
 .svc.posto span{color:var(--ok)}
+.svc.posto b::before{content:'✓ ';color:var(--ok)}
 .contador{position:sticky;bottom:0;background:var(--paper);padding:10px 0 2px;
   border-top:1px solid var(--line);margin-top:10px}
 
@@ -346,6 +349,18 @@ let buscaCli = '';
 let periodo = 'mes';
 let pIni = '', pFim = '';
 
+// As fotos novas ficam somente neste aparelho. A planilha recebe apenas os dados
+// do orçamento; o arquivo da imagem é guardado no armazenamento privado do PWA.
+const FOTO_DB = 'funilaria-fotos-v1';
+const FOTO_STORE = 'fotos';
+const FOTO_INDICE = 'fotos_locais_ids';
+const FOTO_VAZIA = 'data:image/gif;base64,R0lGODlhAQABAAD/ACwAAAAAAQABAAACADs=';
+let fotosLocais = new Set((()=>{
+  try{ return JSON.parse(localStorage.getItem(FOTO_INDICE)) || []; }
+  catch(e){ return []; }
+})().map(String));
+const urlsFotos = {};
+
 const $ = s => document.querySelector(s);
 const tela = $('#tela');
 
@@ -398,6 +413,136 @@ function fotoAbrir(url){
 function fotoErro(img){
   const i = driveId(img.dataset.url);
   if (i && !img.dataset.tentou){ img.dataset.tentou = 1; img.src = `https://lh3.googleusercontent.com/d/${i}=w1000`; }
+}
+
+function salvarIndiceFotos(){
+  try{ localStorage.setItem(FOTO_INDICE, JSON.stringify([...fotosLocais])); }catch(e){}
+}
+function bancoFotos(){
+  return new Promise((ok, falha)=>{
+    if (!window.indexedDB){ falha(new Error('Este navegador não oferece armazenamento local de fotos.')); return; }
+    const req = indexedDB.open(FOTO_DB, 1);
+    req.onupgradeneeded = ()=>{
+      const db = req.result;
+      if (!db.objectStoreNames.contains(FOTO_STORE)) db.createObjectStore(FOTO_STORE, {keyPath:'id'});
+    };
+    req.onsuccess = ()=> ok(req.result);
+    req.onerror = ()=> falha(req.error || new Error('Não foi possível abrir o armazenamento de fotos.'));
+  });
+}
+async function guardarFotoLocal(itemId, blob){
+  const sid = String(itemId);
+  const db = await bancoFotos();
+  await new Promise((ok, falha)=>{
+    const tx = db.transaction(FOTO_STORE, 'readwrite');
+    tx.objectStore(FOTO_STORE).put({id:sid, blob, quando:Date.now()});
+    tx.oncomplete = ok;
+    tx.onerror = ()=> falha(tx.error || new Error('Não foi possível guardar a foto.'));
+  });
+  db.close();
+  fotosLocais.add(sid); salvarIndiceFotos();
+  if (urlsFotos[sid]) URL.revokeObjectURL(urlsFotos[sid]);
+  urlsFotos[sid] = URL.createObjectURL(blob);
+  if (navigator.storage && navigator.storage.persist) navigator.storage.persist().catch(()=>{});
+}
+async function buscarFotoLocal(itemId){
+  const sid = String(itemId);
+  const db = await bancoFotos();
+  const reg = await new Promise((ok, falha)=>{
+    const req = db.transaction(FOTO_STORE, 'readonly').objectStore(FOTO_STORE).get(sid);
+    req.onsuccess = ()=>ok(req.result || null);
+    req.onerror = ()=>falha(req.error || new Error('Não foi possível ler a foto.'));
+  });
+  db.close();
+  if (!reg){ fotosLocais.delete(sid); salvarIndiceFotos(); }
+  return reg && reg.blob ? reg.blob : null;
+}
+async function apagarFotoLocal(itemId){
+  const sid = String(itemId);
+  const db = await bancoFotos();
+  await new Promise((ok, falha)=>{
+    const tx = db.transaction(FOTO_STORE, 'readwrite');
+    tx.objectStore(FOTO_STORE).delete(sid);
+    tx.oncomplete = ok;
+    tx.onerror = ()=>falha(tx.error || new Error('Não foi possível apagar a foto.'));
+  });
+  db.close();
+  fotosLocais.delete(sid); salvarIndiceFotos();
+  if (urlsFotos[sid]){ URL.revokeObjectURL(urlsFotos[sid]); delete urlsFotos[sid]; }
+}
+const temFotoLocal = itemId => fotosLocais.has(String(itemId));
+const temFoto = it => !!(it && (temFotoLocal(it.ID) || it.FotoURL));
+
+async function urlFotoLocal(itemId){
+  const sid = String(itemId);
+  if (urlsFotos[sid]) return urlsFotos[sid];
+  const blob = await buscarFotoLocal(sid);
+  if (!blob) return '';
+  return (urlsFotos[sid] = URL.createObjectURL(blob));
+}
+async function carregarFotosLocaisNaTela(){
+  const imgs = [...document.querySelectorAll('img[data-foto-local]')];
+  await Promise.all(imgs.map(async img=>{
+    try{
+      const url = await urlFotoLocal(img.dataset.fotoLocal);
+      if (url && document.body.contains(img)) img.src = url;
+    }catch(e){ img.alt = 'Foto indisponível neste aparelho'; }
+  }));
+}
+async function verFotoLocal(itemId){
+  try{
+    const url = await urlFotoLocal(itemId);
+    if (!url){ aviso('Esta foto não está mais neste aparelho', true); return; }
+    await folha({
+      titulo:'Foto do serviço',
+      corpo:`<img src="${esc(url)}" alt="Foto do serviço" style="display:block;width:100%;max-height:70vh;object-fit:contain;border-radius:var(--r);background:var(--ink)">`,
+      botoes:[{rot:'Fechar',valor:true,classe:'sec'}]
+    });
+  }catch(e){ aviso('Não consegui abrir a foto', true); }
+}
+function nomeArquivoFoto(desc){
+  const base = semAcento(desc||'foto').replace(/[^a-z0-9]+/g,'-').replace(/^-|-$/g,'').slice(0,45) || 'foto';
+  return `${base}-${hoje()}.jpg`;
+}
+async function salvarFotoNoAparelho(itemId, desc){
+  try{
+    const blob = await buscarFotoLocal(itemId);
+    if (!blob){ aviso('Esta foto não está mais neste aparelho', true); return; }
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url; a.download = nomeArquivoFoto(desc); a.style.display = 'none';
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(()=>URL.revokeObjectURL(url), 30000);
+    aviso('Cópia da foto preparada para salvar');
+  }catch(e){ aviso('Não consegui salvar uma cópia da foto', true); }
+}
+async function removerFoto(ix){
+  const it = rascunho.itens[ix]; if (!it) return;
+  if (!(await confirmar('Remover foto', 'A foto deixa de aparecer neste orçamento.', 'Remover', true))) return;
+  try{
+    if (temFotoLocal(it.ID)) await apagarFotoLocal(it.ID);
+    it.FotoURL = '';
+    delete it._novaFoto;
+    guardarRascunho(); telaEditor(); aviso('Foto removida');
+  }catch(e){ aviso('Não consegui remover a foto', true); }
+}
+function base64ParaBlob(base64, mime){
+  const bin = atob(base64), bytes = new Uint8Array(bin.length);
+  for (let i=0;i<bin.length;i++) bytes[i] = bin.charCodeAt(i);
+  return new Blob([bytes], {type:mime||'image/jpeg'});
+}
+async function migrarFotosLegadas(itens){
+  for (const it of (itens||[])){
+    if (!it._novaFoto) continue;
+    await guardarFotoLocal(it.ID, base64ParaBlob(it._novaFoto, 'image/jpeg'));
+    it.FotoURL = '';
+    delete it._novaFoto;
+  }
+}
+function blobParaDataURL(blob){
+  return new Promise((ok, falha)=>{
+    const r = new FileReader(); r.onload=()=>ok(r.result); r.onerror=()=>falha(r.error); r.readAsDataURL(blob);
+  });
 }
 
 /* ===================== instalar como aplicativo ===================== */
@@ -844,15 +989,16 @@ async function esvaziarFila(silencioso){
     while (f.length){
       const item = f[0];
       try{
-        // as fotos vão primeiro; no aparelho elas estão como base64
+        // Versões antigas da fila guardavam a foto em base64. Migra para o
+        // armazenamento privado deste aparelho e nunca envia o arquivo ao Drive.
         for (const it of (item.itens || [])){
           if (it._novaFoto){
-            const fr = await chamar('enviarFoto', { base64: it._novaFoto, mime:'image/jpeg' });
-            it.FotoURL = fr.url;
+            await guardarFotoLocal(it.ID, base64ParaBlob(it._novaFoto, 'image/jpeg'));
+            it.FotoURL = '';
             delete it._novaFoto;
-            gravarFila(f);            // se cair a conexão agora, a foto já enviada não sobe duas vezes
+            gravarFila(f);
           }
-          if (String(it.FotoURL||'').startsWith('data:')) it.FotoURL = '';
+          if (temFotoLocal(it.ID) || String(it.FotoURL||'').startsWith('data:')) it.FotoURL = '';
         }
         const r = await chamar('salvarOrcamento', {
           orcamento: item.orcamento, itens: item.itens, chaveIdem: item.chaveIdem });
@@ -1213,9 +1359,16 @@ function telaEditor(){
                aria-label="Valor de ${esc(it.Descricao||'serviço')}">
         <b class="sub">${moeda(num(it.Qtd)*num(it.Valor))}</b>
       </div>
-      ${it.FotoURL?`<img class="fotogrande" src="${esc(fotoSrc(it.FotoURL))}" data-url="${esc(it.FotoURL)}"
-          referrerpolicy="no-referrer" onerror="fotoErro(this)" onclick="fotoAbrir(this.dataset.url)" alt="Foto de ${esc(it.Descricao||'serviço')}">`:''}
-      <div class="foto"><button class="fotobtn" onclick="tirarFoto(${ix})">${it.FotoURL?'Trocar foto':'📷 Tirar foto'}</button></div>
+      ${temFoto(it)?(temFotoLocal(it.ID)
+        ? `<img class="fotogrande" src="${FOTO_VAZIA}" data-foto-local="${esc(it.ID)}"
+             onclick="verFotoLocal('${escJs(it.ID)}')" alt="Foto de ${esc(it.Descricao||'serviço')} guardada neste aparelho">`
+        : `<img class="fotogrande" src="${esc(fotoSrc(it.FotoURL))}" data-url="${esc(it.FotoURL)}"
+             referrerpolicy="no-referrer" onerror="fotoErro(this)" onclick="fotoAbrir(this.dataset.url)" alt="Foto de ${esc(it.Descricao||'serviço')}">`):''}
+      <div class="foto-acoes">
+        <button class="fotobtn" onclick="tirarFoto(${ix})">${temFoto(it)?'📷 Trocar foto':'📷 Tirar foto'}</button>
+        ${temFotoLocal(it.ID)?`<button class="fotobtn" onclick="salvarFotoNoAparelho('${escJs(it.ID)}','${escJs(it.Descricao||'foto')}')">⬇ Salvar no aparelho</button>`:''}
+        ${temFoto(it)?`<button class="fotobtn" onclick="removerFoto(${ix})">Remover foto</button>`:''}
+      </div>
     </div>`;
   });
   h += `<button class="btn ${rascunho.itens.length?'sec':''}" onclick="folhaServicos()">
@@ -1310,6 +1463,7 @@ function telaEditor(){
     el.addEventListener('change', ()=>{ lerCampos(); guardarRascunho(); });
   });
   if (novo && !o.Placa) setTimeout(()=>{ const p = $('#fPlaca'); if (p) p.focus(); }, 60);
+  carregarFotosLocaisNaTela();
 }
 
 /* --- campos --- */
@@ -1359,6 +1513,8 @@ async function ofereceRascunho(){
   const seguir = await confirmar('Tem um orçamento não salvo',
     `${quem} — ${(r.itens||[]).length} serviço(s). Quer continuar de onde parou?`, 'Continuar');
   if (!seguir){ limparRascunho(); return false; }
+  try{ await migrarFotosLegadas(r.itens); }
+  catch(e){ aviso('Não consegui recuperar uma foto antiga deste rascunho', true); }
   rascunho = r;
   telaAtual = 'editor';
   render();
@@ -1393,6 +1549,7 @@ async function removerItem(ix){
   const it = rascunho.itens[ix]; if (!it) return;
   lerCampos();
   if (!(await confirmar('Remover serviço', `"${it.Descricao||'sem descrição'}" sai do orçamento.`, 'Remover', true))) return;
+  if (temFotoLocal(it.ID)) await apagarFotoLocal(it.ID).catch(()=>{});
   rascunho.itens.splice(ix,1);
   guardarRascunho();
   telaEditor();
@@ -1469,21 +1626,34 @@ let servBusca = '';
 async function folhaServicos(){
   lerCampos();
   servCat = 'Todas'; servBusca = '';
-  const antes = rascunho.itens.length;
-  await folha({
+  const antes = JSON.stringify(rascunho.itens);
+  const escolha = await folha({
     titulo: 'Adicionar serviço',
     corpo: `<input id="svBusca" class="busca" placeholder="buscar serviço" autocomplete="off" style="margin-bottom:10px">
       <div class="cats" id="svCats"></div>
       <div class="grade" id="svGrade"></div>
       <div class="contador" id="svRodape"></div>`,
-    botoes: [{ rot:'Pronto', valor:true }],
+    botoes: [
+      { rot:'Pronto', valor:true },
+      { rot:'Cancelar alterações', valor:false, classe:'sec' }
+    ],
     aoAbrir: el =>{
       const busca = el.querySelector('#svBusca');
       busca.oninput = ()=>{ servBusca = busca.value; pintarServicos(el); };
       pintarServicos(el);
     }
   });
-  if (rascunho.itens.length > antes) aviso((rascunho.itens.length - antes) + ' serviço(s) no orçamento');
+  if (escolha !== true){
+    rascunho.itens = JSON.parse(antes);
+    aviso('Alterações nos serviços canceladas');
+  } else if (JSON.stringify(rascunho.itens) !== antes){
+    const atuais = new Set(rascunho.itens.map(i=>String(i.ID)));
+    for (const antigo of JSON.parse(antes)){
+      if (!atuais.has(String(antigo.ID)) && temFotoLocal(antigo.ID)) await apagarFotoLocal(antigo.ID).catch(()=>{});
+    }
+    guardarRascunho();
+    aviso('Serviços do orçamento atualizados');
+  }
   telaEditor();
 }
 
@@ -1511,8 +1681,8 @@ function pintarServicos(el){
   el.querySelector('#svGrade').innerHTML = lista.length
     ? lista.map((s,k)=>{
         const n = postos[semAcento(s.Descricao)] || 0;
-        return `<button class="svc ${n?'posto':''}" data-k="${k}">
-          <b>${esc(s.Descricao)}</b><span>${n?'✓ '+n+' · ':''}${moeda(s.ValorPadrao)}</span></button>`;
+        return `<button class="svc ${n?'posto':''}" data-k="${k}" aria-pressed="${!!n}">
+          <b>${esc(s.Descricao)}</b><span>${n?'incluído · toque para remover':'toque para incluir'} · ${moeda(s.ValorPadrao)}</span></button>`;
       }).join('')
     : `<div class="vazio" style="grid-column:1/3">Nenhum serviço com esse nome.</div>`;
 
@@ -1529,13 +1699,13 @@ function pintarServicos(el){
   el.querySelector('#svNovo').onclick = ()=> cadastrarEUsar(el);
 }
 
-// Se o serviço já está no orçamento, só aumenta a quantidade.
+// Um toque inclui; outro toque remove. Quantidade é ajustada no orçamento,
+// evitando que um toque repetido aumente o valor sem uma forma clara de voltar.
 function porServico(s){
   if (!s) return;
-  const ja = rascunho.itens.find(i=> semAcento(i.Descricao) === semAcento(s.Descricao));
-  if (ja) ja.Qtd = (num(ja.Qtd) || 1) + 1;
+  const ix = rascunho.itens.findIndex(i=> semAcento(i.Descricao) === semAcento(s.Descricao));
+  if (ix >= 0) rascunho.itens.splice(ix, 1);
   else rascunho.itens.push({ ID:id('I'), Descricao:s.Descricao, Qtd:1, Valor:s.ValorPadrao, FotoURL:'' });
-  guardarRascunho();
 }
 
 async function cadastrarEUsar(el){
@@ -1581,11 +1751,14 @@ function tirarFoto(ix){
   inp.onchange = async ()=>{
     const f = inp.files[0]; if (!f) return;
     try{
-      const b64 = await comprimir(f);
-      rascunho.itens[ix].FotoURL = 'data:image/jpeg;base64,'+b64;
-      rascunho.itens[ix]._novaFoto = b64;
+      const blob = await comprimir(f);
+      const it = rascunho.itens[ix];
+      await guardarFotoLocal(it.ID, blob);
+      it.FotoURL = '';                 // a planilha nunca recebe caminho nem conteúdo da foto
+      delete it._novaFoto;
+      guardarRascunho();
       telaEditor();
-      aviso('Foto anexada. Ela vai para o Drive quando você salvar.');
+      aviso('Foto guardada somente neste aparelho');
     }catch(e){ aviso('Não consegui ler a foto', true); }
   };
   inp.click();
@@ -1594,15 +1767,17 @@ function comprimir(file, max){
   max = max || 1280;
   return new Promise((ok,falha)=>{
     const img = new Image();
+    const url = URL.createObjectURL(file);
     img.onload = ()=>{
       const e = Math.min(1, max/Math.max(img.width,img.height));
       const c = document.createElement('canvas');
       c.width = Math.round(img.width*e); c.height = Math.round(img.height*e);
       c.getContext('2d').drawImage(img,0,0,c.width,c.height);
-      ok(c.toDataURL('image/jpeg',.72).split(',')[1]);
+      URL.revokeObjectURL(url);
+      c.toBlob(b=> b ? ok(b) : falha(new Error('Não foi possível comprimir a foto')), 'image/jpeg', .72);
     };
-    img.onerror = falha;
-    img.src = URL.createObjectURL(file);
+    img.onerror = e=>{ URL.revokeObjectURL(url); falha(e); };
+    img.src = url;
   });
 }
 
@@ -1628,8 +1803,11 @@ async function salvarTudo(msg){
     if (!motivo){ aviso('Alteração cancelada', true); return false; }
   }
 
-  const paraEnviar = () => itens.map(i=>
-    ({ID:i.ID, Descricao:i.Descricao, Qtd:num(i.Qtd)||1, Valor:num(i.Valor), FotoURL:i.FotoURL||'', _novaFoto:i._novaFoto||''}));
+  const paraEnviar = () => itens.map(i=>({
+    ID:i.ID, Descricao:i.Descricao, Qtd:num(i.Qtd)||1, Valor:num(i.Valor),
+    // foto local não sai do aparelho; links antigos do Drive continuam legíveis
+    FotoURL: temFotoLocal(i.ID) || String(i.FotoURL||'').startsWith('data:') ? '' : (i.FotoURL||'')
+  }));
 
   // Sem internet: orçamento novo fica guardado; alteração de um que já existe, não.
   if (semRede()){
@@ -1647,21 +1825,10 @@ async function salvarTudo(msg){
   ocupado = true;
   aviso('Salvando…');
   try{
-    for (const it of itens){
-      if (it._novaFoto){
-        aviso('Enviando foto…');
-        const r = await chamar('enviarFoto', { base64: it._novaFoto, mime:'image/jpeg' });
-        it.FotoURL = r.url; delete it._novaFoto;
-      }
-    }
     // Pagamentos não vão junto: eles têm ações próprias, que só somam lançamentos.
     const r = await chamar('salvarOrcamento', {
       orcamento: Object.assign({}, o, { Versao: o.Versao, ValorCobrado: num(o.ValorCobrado) || '' }),
-      itens: paraEnviar().map(i=>{
-        delete i._novaFoto;
-        if (String(i.FotoURL||'').startsWith('data:')) i.FotoURL = '';   // nunca gravar base64 na planilha
-        return i;
-      }),
+      itens: paraEnviar(),
       motivo: motivo || ''
     });
     rascunho.orcamento = r.orcamento;
@@ -1816,14 +1983,20 @@ async function cancelarOrc(){
 
 /* ===================== PDF ===================== */
 
-// As fotos ficam no Drive, que não manda cabeçalho de CORS: o navegador não
-// consegue ler a imagem para dentro do PDF. Quem busca é o servidor, que já tem
-// permissão, e devolve em base64. Guardamos na memória para não baixar duas vezes.
+// Fotos novas vêm do armazenamento local. Links antigos do Drive ainda são
+// aceitos para que orçamentos anteriores continuem gerando PDF.
 const cacheFotos = {};
 
 async function fotosDoOrcamento(itens){
   const saida = [];
   for (const it of itens){
+    if (temFotoLocal(it.ID)){
+      try{
+        const blob = await buscarFotoLocal(it.ID);
+        if (blob) saida.push({ desc:it.Descricao, dados:await blobParaDataURL(blob) });
+      }catch(e){ console.warn('foto local não veio', it.ID, e.message); }
+      continue;
+    }
     const url = it.FotoURL;
     if (!url) continue;
     if (String(url).startsWith('data:')){            // foto recém-tirada, ainda no aparelho
@@ -1952,7 +2125,7 @@ async function gerarPDF(compartilhar){
   const nome = `Orcamento-${o.Numero||'novo'}-${String(o.Placa||o.ClienteNome||'').replace(/\W+/g,'')}.pdf`;
   const doc = montarPDF();
 
-  const comFoto = rascunho.itens.filter(i=>i.FotoURL).length;
+  const comFoto = rascunho.itens.filter(temFoto).length;
   if (comFoto){
     aviso(`Buscando ${comFoto} foto(s) para o PDF…`);
     try{ anexarFotos(doc, await fotosDoOrcamento(rascunho.itens)); }
@@ -2334,9 +2507,9 @@ function telaAjustes(){
       <div class="l"><span>Serviços cadastrados</span><b>${dados.servicos.length}</b></div>
       <div class="l"><span>Clientes</span><b>${dados.clientes.length}</b></div>
     </div>
-    <div class="aviso" style="margin-top:14px">Os dados ficam na sua planilha do Google. O app guarda uma cópia no aparelho para abrir mais rápido, e ela é apagada quando você sai da conta.</div>
+    <div class="aviso" style="margin-top:14px">Clientes, orçamentos e pagamentos ficam na planilha. As <b>fotos novas ficam somente neste aparelho</b> (${fotosLocais.size}) e não são enviadas ao Drive. Use “Salvar no aparelho” em cada foto para criar uma cópia fora do app.</div>
     ${CLIENT_ID?'':'<div class="aviso" style="margin-top:10px;border-color:var(--debt);color:var(--debt)"><b>Sem login configurado.</b> Preencha CLIENT_ID no index.html e no Apps Script antes de usar de verdade. Veja SETUP.md.</div>'}
-    <p style="text-align:center;color:var(--steel);font-size:12px">versão 8</p>
+    <p style="text-align:center;color:var(--steel);font-size:12px">versão 9</p>
   </div>`;
 }
 // Testa exatamente a URL que está gravada no app, sem depender de login.
@@ -2372,7 +2545,7 @@ async function testarConexao(){
   const planilha = d.planilha === 'acessivel';
 
   let h = `<div class="tot-box" style="margin-top:10px">
-    ${linha('Versão publicada', d.versao, String(d.versao)==='5')}
+    ${linha('Versão publicada', d.versao, String(d.versao)==='7')}
     ${linha('CLIENT_ID no servidor', '', !!d.clientIdPreenchido)}
     ${linha('Permissão de validar login', '', externa)}
     ${linha('Executando como dono', '', comoDono)}
@@ -2383,7 +2556,7 @@ async function testarConexao(){
     h += `<div class="quitado">✓ Tudo certo. Pode entrar.</div>`;
   } else {
     const oque = [];
-    if (String(d.versao)!=='5') oque.push('A API está rodando uma versão antiga. Cole o <b>Codigo.gs</b> novo e publique <b>Nova versão</b>.');
+    if (String(d.versao)!=='7') oque.push('A API está rodando uma versão antiga. Cole o <b>Codigo.gs</b> novo e publique <b>Nova versão</b>.');
     if (!d.clientIdPreenchido) oque.push('O <b>CLIENT_ID</b> não foi preenchido no Codigo.gs.');
     if (!externa) oque.push('No editor do Apps Script, rode a função <b>autorizar</b>, aceite as permissões e publique <b>Nova versão</b>.');
     if (!comoDono) oque.push('Na implantação, <b>Executar como</b> precisa ser <b>Eu</b>, não "Usuário que acessa o app".');

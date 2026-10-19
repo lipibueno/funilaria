@@ -188,6 +188,19 @@ aumenta a quantidade. A folha fica aberta para pôr vários seguidos e mostra o 
 correndo no pé. Serviço que não está na lista se cadastra ali mesmo, num formulário
 só, e já entra no orçamento.
 
+
+**Serviço que não está na lista.** Na folha de serviços há dois botões, e eles fazem
+coisas diferentes de propósito:
+
+- **＋ Serviço avulso, só neste orçamento** — entra como item daquele orçamento e
+  pronto. Não vai para a lista. É para o que não se repete: uma peça usada, um acerto
+  combinado na hora. Na tela do orçamento ele aparece com a etiqueta **AVULSO**, e
+  tocar nele abre a edição.
+- **＋ Cadastrar na lista, para usar sempre** — além de incluir no orçamento, grava na
+  aba `Servicos`, para aparecer em todos os próximos.
+
+A lista de serviços continua sendo só o que de fato se repete na oficina.
+
 **Valor com máscara de centavos.** Digitar `38000` mostra `380,00`; `3800000` mostra
 `38.000,00`. Não existe mais ponto no lugar errado. O telefone também é formatado
 enquanto se digita — mas o app não reformata número que já estava na planilha, porque

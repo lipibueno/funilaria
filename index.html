@@ -280,6 +280,13 @@ details.mais>summary::-webkit-details-marker{display:none}
 details.mais>summary::after{content:'▾'}
 details.mais[open]>summary::after{content:'▴'}
 
+/* serviço avulso: dá para tocar e editar, e se distingue do que vem da lista */
+.avulso-ed{flex:1;min-width:0;display:flex;align-items:center;gap:8px;text-align:left;padding:2px 0}
+.avulso-ed b{font-size:15px;font-weight:600}
+.tag-avulso{flex:none;font-size:10.5px;font-weight:800;letter-spacing:.3px;text-transform:uppercase;
+  padding:2px 7px;border-radius:999px;background:var(--tape);color:var(--ink)}
+.avulso-ed:active b{text-decoration:underline}
+
 /* itens mais enxutos */
 .item .desc{display:flex;justify-content:space-between;align-items:center;gap:8px}
 .item .desc b{font-size:15px;font-weight:600;flex:1;min-width:0}
@@ -1378,7 +1385,10 @@ function telaEditor(){
   rascunho.itens.forEach((it,ix)=>{
     h += `<div class="item" data-ix="${ix}">
       <div class="desc">
-        <b>${esc(it.Descricao||'sem descrição')}</b>
+        ${ehAvulso(it.Descricao)
+          ? `<button class="avulso-ed" onclick="editarAvulso(${ix})" aria-label="Editar ${esc(it.Descricao)}">
+               <b>${esc(it.Descricao)}</b><span class="tag-avulso">avulso</span></button>`
+          : `<b>${esc(it.Descricao||'sem descrição')}</b>`}
         <button class="del" onclick="removerItem(${ix})" aria-label="Remover ${esc(it.Descricao||'serviço')}">×</button>
       </div>
       <div class="lin">
@@ -1726,7 +1736,9 @@ function pintarServicos(el){
   el.querySelector('#svRodape').innerHTML =
     `<div style="display:flex;justify-content:space-between;align-items:center;font-size:14px">
       <span style="color:var(--steel)">${rascunho.itens.length} no orçamento</span><b>${moeda(t)}</b></div>
-    <button class="btn sec" id="svNovo" style="margin-top:8px">＋ Cadastrar serviço que não está na lista</button>`;
+    <button class="btn tape" id="svAvulso" style="margin-top:8px">＋ Serviço avulso, só neste orçamento</button>
+    <button class="btn sec" id="svNovo">＋ Cadastrar na lista, para usar sempre</button>`;
+  el.querySelector('#svAvulso').onclick = ()=> avulsoNoOrcamento(el);
   el.querySelector('#svNovo').onclick = ()=> cadastrarEUsar(el);
 }
 
@@ -1737,6 +1749,66 @@ function porServico(s){
   const ix = rascunho.itens.findIndex(i=> semAcento(i.Descricao) === semAcento(s.Descricao));
   if (ix >= 0) rascunho.itens.splice(ix, 1);
   else rascunho.itens.push({ ID:id('I'), Descricao:s.Descricao, Qtd:1, Valor:s.ValorPadrao, FotoURL:'' });
+}
+
+/* --- serviço avulso: entra no orçamento sem ir para a lista ---
+   Serve para o que não se repete: uma peça usada, um acerto combinado na hora.
+   A lista de serviços continua sendo só o que de fato se repete na oficina. */
+
+// Avulso é o item cuja descrição não existe na lista de serviços.
+const ehAvulso = desc => {
+  const d = semAcento(String(desc||'').trim());
+  return !!d && !servicosAtivos().some(s=> semAcento(s.Descricao) === d);
+};
+
+function formAvulso(it){
+  const v = it && num(it.Valor) ? num(it.Valor).toFixed(2).replace('.',',') : '';
+  return folha({
+    titulo: it ? 'Editar serviço avulso' : 'Serviço avulso',
+    texto: 'Entra só neste orçamento. Não vai para a lista de serviços.',
+    corpo: `<label for="avDesc">O que foi feito</label>
+      <input id="avDesc" value="${esc(it ? it.Descricao : servBusca.trim())}"
+             placeholder="ex.: parachoque usado, acerto combinado" autocomplete="off">
+      <div class="grid2">
+        <div><label for="avValor">Valor</label>
+          <input id="avValor" class="moeda" value="${esc(v)}" placeholder="0,00"></div>
+        <div><label for="avQtd">Quantidade</label>
+          <input id="avQtd" inputmode="numeric" value="${it ? (num(it.Qtd)||1) : 1}"></div>
+      </div>
+      <div id="avErro" style="color:var(--debt);font-size:13px;margin-top:6px"></div>`,
+    botoes: [
+      { rot: it ? 'Salvar' : 'Incluir no orçamento', valor: f=>{
+          const d = f.querySelector('#avDesc').value.trim();
+          if (!d){
+            f.querySelector('#avErro').textContent = 'Escreva o que foi feito.';
+            f.querySelector('#avDesc').focus();
+            return undefined;
+          }
+          return { Descricao: d.slice(0,300),
+                   Valor: num(f.querySelector('#avValor').value),
+                   Qtd: num(f.querySelector('#avQtd').value) || 1 };
+        } },
+      { rot: 'Cancelar', valor: null, classe: 'sec' }
+    ]
+  });
+}
+
+async function avulsoNoOrcamento(el){
+  const r = await formAvulso(null);
+  if (!r) return;
+  rascunho.itens.push({ ID:id('I'), Descricao:r.Descricao, Qtd:r.Qtd, Valor:r.Valor, FotoURL:'' });
+  guardarRascunho();
+  aviso('Incluído só neste orçamento');
+  if (el && document.body.contains(el)) pintarServicos(el);
+}
+
+// Editar direto na tela do orçamento, sem ter que remover e incluir de novo.
+async function editarAvulso(ix){
+  const it = rascunho.itens[ix]; if (!it) return;
+  const r = await formAvulso(it);
+  if (!r) return;
+  it.Descricao = r.Descricao; it.Valor = r.Valor; it.Qtd = r.Qtd;
+  guardarRascunho(); telaEditor(); aviso('Serviço atualizado');
 }
 
 async function cadastrarEUsar(el){
@@ -2547,7 +2619,7 @@ function telaAjustes(){
     </div>
     <div class="aviso" style="margin-top:14px">Clientes, orçamentos e pagamentos ficam na planilha. As <b>fotos novas ficam somente neste aparelho</b> (${fotosLocais.size}) e não são enviadas ao Drive. Use “Salvar no aparelho” em cada foto para criar uma cópia fora do app.</div>
     ${CLIENT_ID?'':'<div class="aviso" style="margin-top:10px;border-color:var(--debt);color:var(--debt)"><b>Sem login configurado.</b> Preencha CLIENT_ID no index.html e no Apps Script antes de usar de verdade. Veja SETUP.md.</div>'}
-    <p style="text-align:center;color:var(--steel);font-size:12px">versão 12</p>
+    <p style="text-align:center;color:var(--steel);font-size:12px">versão 13</p>
   </div>`;
   pintarBlocoFotos();
 }

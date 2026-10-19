@@ -1,6 +1,6 @@
-// v12: fotos novas ficam no aparelho e os ícones fazem parte do cache essencial.
+// v13: fotos novas ficam no aparelho e os ícones fazem parte do cache essencial.
 // Ao subir uma alteração, troque o número do CACHE para limpar a cópia antiga.
-const CACHE = 'funilaria-v12';
+const CACHE = 'funilaria-v13';
 
 // Essenciais: se um destes falhar, a instalação falha mesmo (e aí é erro de verdade).
 const ESSENCIAIS = ['./', './index.html', './manifest.json', './icone-192.png', './icone-512.png', './marca-dagua.png'];

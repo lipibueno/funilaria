@@ -122,9 +122,11 @@ function montarAmbiente(){
     },
     Logger: { log(){} },
     MailApp: {
-      sendEmail: o => { g.__emails.push(o); }
+      sendEmail: o => { if (g.__mailBloqueado) throw new Error('Voce nao tem permissao para chamar MailApp.sendEmail. Permissoes necessarias: https://www.googleapis.com/auth/script.send_mail'); g.__emails.push(o); },
+      getRemainingDailyQuota: () => { if (g.__mailBloqueado) throw new Error('Voce nao tem permissao para chamar MailApp.getRemainingDailyQuota'); return 100; }
     },
     __emails: [],
+    __mailBloqueado: false,
     __alertas: [],
     __menu: null,
     __respostaBotao: null,

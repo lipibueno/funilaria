@@ -217,6 +217,54 @@ t('e-mail sem acesso nao recebe nada, e a resposta e a mesma', () => {
   igual(a.g.__emails.length, 1, 'so o cadastrado recebeu:');
 });
 
+t('sem permissao de enviar e-mail, diz o que fazer', () => {
+  const a = appPronto();
+  a.g.__mailBloqueado = true;
+  const r = recusa(() => a.post({ action: 'pedirCodigo', email: 'func@oficina.com' }), 'CONFIG');
+  if (!/autorizar/.test(r.error)) throw new Error('devia mandar rodar "autorizar": ' + r.error);
+  if (!/nova versao/i.test(r.error)) throw new Error('devia mandar publicar de novo: ' + r.error);
+});
+
+t('e-mail que falhou nao deixa codigo valido para tras', () => {
+  const a = appPronto();
+  a.g.__mailBloqueado = true;
+  a.post({ action: 'pedirCodigo', email: 'func@oficina.com' });
+  // nenhum codigo pode ter ficado guardado: ninguem recebeu nada para digitar
+  const sobrou = Object.keys(a.g.__cache).filter(k => k.indexOf('cod_') === 0);
+  igual(sobrou.length, 0, 'codigos pendentes:');
+  a.g.__mailBloqueado = false;
+  recusa(() => a.post({ action: 'entrarComCodigo', email: 'func@oficina.com', codigo: '000000' }), 'CODIGO');
+});
+
+t('autorizar encosta na permissao de e-mail', () => {
+  const a = appPronto();
+  const saida = a.g.autorizar();
+  if (!/envio de e-mail: liberado/.test(saida)) {
+    throw new Error('autorizar precisa tocar no envio de e-mail, senao a permissao nunca e pedida: ' + saida);
+  }
+});
+
+t('autorizar avisa quando o envio de e-mail esta bloqueado', () => {
+  const a = appPronto();
+  a.g.__mailBloqueado = true;
+  let erro = null;
+  try { a.g.autorizar(); } catch (e) { erro = e; }
+  // precisa estourar: e assim que o Google pede a permissao que falta
+  if (!erro) throw new Error('devia ter lancado, para o Google pedir a autorizacao');
+});
+
+t('o diagnostico aponta a permissao de e-mail', () => {
+  const a = appPronto();
+  a.g.__mailBloqueado = true;
+  const d = JSON.parse(a.g.doGet({ parameter: { diag: '1' } }).txt);
+  igual(d.ok, 'false');
+  if (!/BLOQUEADO/.test(d.envioDeEmail)) throw new Error('devia apontar o e-mail: ' + d.envioDeEmail);
+  a.g.__mailBloqueado = false;
+  const d2 = JSON.parse(a.g.doGet({ parameter: { diag: '1' } }).txt);
+  if (!/LIBERADO/.test(d2.envioDeEmail)) throw new Error('devia estar liberado: ' + d2.envioDeEmail);
+  igual(d2.ok, 'true');
+});
+
 t('codigo certo entra e devolve sessao', () => {
   const a = appPronto();
   a.post({ action: 'pedirCodigo', email: 'func@oficina.com' });

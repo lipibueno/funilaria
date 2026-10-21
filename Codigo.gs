@@ -87,6 +87,12 @@ function autorizar() {
   linhas.push('- chamada externa (validacao do login): HTTP ' + r.getResponseCode() +
               ' (400 aqui e o esperado)');
 
+  // Permissao de enviar e-mail, que e como o codigo de 6 digitos chega a pessoa.
+  // getRemainingDailyQuota pede o mesmo escopo de sendEmail sem mandar nada,
+  // e de quebra diz quantos e-mails ainda cabem hoje.
+  linhas.push('- envio de e-mail: liberado, restam ' +
+              MailApp.getRemainingDailyQuota() + ' e-mails hoje');
+
   var dono = donoDaPlanilha();
   linhas.push('- conta do dono: ' + (dono || 'NAO IDENTIFICADA'));
 
@@ -256,6 +262,13 @@ function doGet(e) {
   }
 
   try {
+    d.envioDeEmail = 'LIBERADO, restam ' + MailApp.getRemainingDailyQuota() + ' hoje';
+  } catch (err) {
+    d.envioDeEmail = 'BLOQUEADO -> rode a funcao autorizar() no editor, aceite as ' +
+                     'permissoes e publique nova versao. Sem isto o codigo nao chega no e-mail.';
+  }
+
+  try {
     var em = String(Session.getEffectiveUser().getEmail() || '');
     d.executandoComo = em
       ? 'dono da planilha (correto)'
@@ -272,6 +285,7 @@ function doGet(e) {
   }
 
   d.ok = d.chamadaExterna.indexOf('LIBERADA') === 0 &&
+         d.envioDeEmail.indexOf('LIBERADO') === 0 &&
          d.executandoComo.indexOf('correto') > 0 &&
          d.planilha === 'acessivel' && !!CLIENT_ID;
   return _json(d);
@@ -435,14 +449,18 @@ function pedirCodigo(req) {
       h: _hash(email + ':' + codigo), exp: Date.now() + CODIGO_VALE_MIN * 60000, erros: 0
     }), CODIGO_VALE_MIN * 60);
 
-    MailApp.sendEmail({
-      to: email,
-      subject: codigo + ' e o seu codigo de acesso',
-      body: 'Ola' + (u.Nome ? ' ' + u.Nome : '') + ',\n\n' +
-            'Seu codigo para entrar no app de orcamentos:\n\n    ' + codigo + '\n\n' +
-            'Ele vale por ' + CODIGO_VALE_MIN + ' minutos e serve uma vez so.\n\n' +
-            'Se nao foi voce que pediu, ignore este e-mail: sem o codigo ninguem entra.'
-    });
+    try {
+      _enviarCodigo(email, u, codigo);
+    } catch (falha) {
+      cache.remove('cod_' + _hash(email));   // sem e-mail enviado, o codigo nao serve
+      // acontece quando a autorizacao do script e anterior ao login por e-mail
+      if (String(falha).indexOf('MailApp') >= 0 || String(falha).indexOf('send_mail') >= 0) {
+        throw erro('CONFIG', 'O script nao tem permissao para enviar e-mail. ' +
+                   'No editor do Apps Script, rode a funcao "autorizar" uma vez, ' +
+                   'aceite as permissoes e publique uma nova versao.');
+      }
+      throw falha;
+    }
 
     props.setProperty('envios_' + hojeTxt, String(totalHoje + 1));
     registrar(email, 'codigo_enviado', 'Sessoes', email, '', '', '');
@@ -454,6 +472,17 @@ function pedirCodigo(req) {
 
   cache.put(chaveQtd, String(qtd + 1), 3600);
   return { enviado: true, validadeMin: CODIGO_VALE_MIN };
+}
+
+function _enviarCodigo(email, u, codigo) {
+  MailApp.sendEmail({
+    to: email,
+    subject: codigo + ' e o seu codigo de acesso',
+    body: 'Ola' + (u.Nome ? ' ' + u.Nome : '') + ',\n\n' +
+          'Seu codigo para entrar no app de orcamentos:\n\n    ' + codigo + '\n\n' +
+          'Ele vale por ' + CODIGO_VALE_MIN + ' minutos e serve uma vez so.\n\n' +
+          'Se nao foi voce que pediu, ignore este e-mail: sem o codigo ninguem entra.'
+  });
 }
 
 // Confere o codigo e devolve a sessao.

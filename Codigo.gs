@@ -489,12 +489,34 @@ function definirSenha(req, u) {
   return { email: alvo, definida: true };
 }
 
-function entrarComSenha(req) {
-  var email = String(req.email || '').trim().toLowerCase();
-  var senha = String(req.senha || '');
-  if (!email || !senha) throw erro('DADO', 'Informe o e-mail e a senha');
+// Aceita o e-mail ou o nome. Funcionario nem sempre lembra o e-mail, e o nome
+// e o que ele reconhece. Nome repetido nao serve para entrar: seria ambiguo, e
+// salvarUsuario ja impede que dois cadastros tenham o mesmo.
+function usuarioPorLogin(valor) {
+  var v = String(valor || '').trim();
+  if (!v) return null;
+  if (v.indexOf('@') >= 0) return usuarioPor(v.toLowerCase());
 
-  var u = usuarioPor(email);
+  var alvo = _semAcento(v);
+  var achados = ler('Usuarios').filter(function (u) {
+    return _semAcento(u.Nome) === alvo;
+  });
+  return achados.length === 1 ? achados[0] : null;
+}
+
+function _semAcento(s) {
+  return String(s || '').trim().toLowerCase()
+    .replace(/[áàâã]/g, 'a').replace(/[éê]/g, 'e').replace(/í/g, 'i')
+    .replace(/[óôõ]/g, 'o').replace(/[úü]/g, 'u').replace(/ç/g, 'c');
+}
+
+function entrarComSenha(req) {
+  var digitado = String(req.email || req.login || '').trim();
+  var senha = String(req.senha || '');
+  if (!digitado || !senha) throw erro('DADO', 'Informe o e-mail ou nome, e a senha');
+
+  var u = usuarioPorLogin(digitado);
+  var email = u ? String(u.Email).trim().toLowerCase() : digitado.toLowerCase();
   var agora = Date.now();
 
   // Resposta igual para e-mail inexistente e senha errada: de fora nao da para
@@ -777,6 +799,22 @@ function salvarUsuario(req, u) {
 
   if (alvo === u.Email && (papel !== 'dono' || !ativo)) {
     throw erro('PERMISSAO', 'Voce nao pode remover o proprio acesso de dono');
+  }
+
+  // Nome repetido impediria a pessoa de entrar pelo nome, que e o jeito mais
+  // simples para quem nao lembra o e-mail.
+  var nomeNovo = String(req.nome || (antes ? antes.Nome : '')).trim();
+  if (nomeNovo) {
+    var conflito = null;
+    ler('Usuarios').forEach(function (x) {
+      if (String(x.Email).trim().toLowerCase() !== alvo && _semAcento(x.Nome) === _semAcento(nomeNovo)) {
+        conflito = x;
+      }
+    });
+    if (conflito) {
+      throw erro('DADO', 'Ja existe alguem cadastrado como "' + nomeNovo +
+                 '". Use um nome diferente, senao nao da para entrar pelo nome.');
+    }
   }
   var linha = {
     Email: alvo, Nome: req.nome || (antes ? antes.Nome : ''), Papel: papel, Ativo: ativo,

@@ -346,6 +346,48 @@ t('redefinir a senha desbloqueia quem estava travado', () => {
   if (!r.ok) throw new Error('devia ter desbloqueado: ' + r.error);
 });
 
+t('entra digitando o nome em vez do e-mail', () => {
+  const a = appPronto();
+  a.chamar('salvarUsuario', 'dono@oficina.com',
+    { email:'cristianocabralcabral1986@gmail.com', nome:'Cristiano', senha:'oficina2026' });
+  const r = a.post({ action:'entrarComSenha', email:'Cristiano', senha:'oficina2026' });
+  if (!r.ok) throw new Error(r.error);
+  igual(r.data.usuario.email, 'cristianocabralcabral1986@gmail.com');
+});
+
+t('nome com acento e maiuscula tambem serve', () => {
+  const a = appPronto();
+  a.chamar('salvarUsuario', 'dono@oficina.com', { email:'j@oficina.com', nome:'João', senha:'oficina2026' });
+  if (!a.post({ action:'entrarComSenha', email:'joao', senha:'oficina2026' }).ok) {
+    throw new Error('devia aceitar sem acento e em minuscula');
+  }
+  if (!a.post({ action:'entrarComSenha', email:'  JOÃO  ', senha:'oficina2026' }).ok) {
+    throw new Error('devia aceitar com espacos e maiusculas');
+  }
+});
+
+t('nome errado nao entra, com a mesma mensagem de sempre', () => {
+  const a = appPronto();
+  a.chamar('salvarUsuario', 'dono@oficina.com', { email:'c@oficina.com', nome:'Cristiano', senha:'oficina2026' });
+  const r = recusa(() => a.post({ action:'entrarComSenha', email:'Cristovao', senha:'oficina2026' }), 'SENHA');
+  igual(r.error, 'E-mail ou senha nao conferem');
+});
+
+t('nao deixa cadastrar duas pessoas com o mesmo nome', () => {
+  const a = appPronto();
+  a.chamar('salvarUsuario', 'dono@oficina.com', { email:'c1@oficina.com', nome:'Cristiano', senha:'oficina2026' });
+  const r = recusa(() => a.chamar('salvarUsuario', 'dono@oficina.com',
+    { email:'c2@oficina.com', nome:'cristiano', senha:'oficina2026' }), 'DADO');
+  if (!/Ja existe alguem cadastrado/.test(r.error)) throw new Error('mensagem pouco clara: ' + r.error);
+});
+
+t('editar a propria pessoa nao acusa conflito de nome', () => {
+  const a = appPronto();
+  a.chamar('salvarUsuario', 'dono@oficina.com', { email:'c@oficina.com', nome:'Cristiano', senha:'oficina2026' });
+  const r = a.chamar('salvarUsuario', 'dono@oficina.com', { email:'c@oficina.com', nome:'Cristiano', papel:'dono' });
+  if (!r.ok) throw new Error('nao devia acusar conflito consigo mesmo: ' + r.error);
+});
+
 t('os tres jeitos de entrar convivem', () => {
   const a = appPronto();
   comSenha(a, 'cris@oficina.com', 'oficina2026');

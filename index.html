@@ -842,9 +842,9 @@ function telaLogin(motivo){
       <div style="font-size:15px;color:var(--ink);font-weight:700">Orçamentos da oficina</div>
     </div>
 
-    <label for="lgEmail">Seu e-mail</label>
-    <input id="lgEmail" type="email" inputmode="email" autocomplete="username"
-           value="${esc(emailLogin || localStorage.getItem('ultimo_email') || '')}" placeholder="voce@exemplo.com">
+    <label for="lgEmail">Seu e-mail ou nome</label>
+    <input id="lgEmail" type="text" autocomplete="username"
+           value="${esc(emailLogin || localStorage.getItem('ultimo_email') || '')}" placeholder="Cristiano, ou voce@exemplo.com">
     <label for="lgSenha">Senha</label>
     <input id="lgSenha" type="password" autocomplete="current-password" placeholder="sua senha">
     <button class="btn" id="btEntrarSenha" onclick="entrarPorSenha()">Entrar</button>
@@ -884,9 +884,10 @@ function outrasFormas(){
 }
 
 async function entrarPorSenha(){
-  const email = ($('#lgEmail').value||'').trim().toLowerCase();
+  // pode ser o e-mail ou o nome; quem resolve qual é dos dois é o servidor
+  const email = ($('#lgEmail').value||'').trim();
   const senha = $('#lgSenha').value || '';
-  if (!email || email.indexOf('@')<0){ aviso('Informe o e-mail', true); return; }
+  if (!email){ aviso('Informe o e-mail ou o nome', true); return; }
   if (!senha){ aviso('Informe a senha', true); $('#lgSenha').focus(); return; }
   if (!API){ aviso('Configure o endereço da API primeiro', true); ir('ajustes'); return; }
 
@@ -2515,7 +2516,7 @@ function telaUsuarios(){
     de 6 dígitos no e-mail cadastrado — não precisa ter conta Google, e não existe senha para esquecer.</div>
     <label for="uEmail">E-mail da conta Google</label>
     <input id="uEmail" inputmode="email" autocomplete="off" placeholder="pessoa@gmail.com">
-    <label for="uNome">Nome</label>
+    <label for="uNome">Nome — é por ele que a pessoa pode entrar, em vez do e-mail</label>
     <input id="uNome" placeholder="como aparece no histórico">
     <label for="uPapel">Tipo de acesso</label>
     <select id="uPapel">
@@ -2713,7 +2714,7 @@ function telaAjustes(){
     </div>
     <div class="aviso" style="margin-top:14px">Clientes, orçamentos e pagamentos ficam na planilha. As <b>fotos novas ficam somente neste aparelho</b> (${fotosLocais.size}) e não são enviadas ao Drive. Use “Salvar no aparelho” em cada foto para criar uma cópia fora do app.</div>
     ${CLIENT_ID?'':'<div class="aviso" style="margin-top:10px;border-color:var(--debt);color:var(--debt)"><b>Sem login configurado.</b> Preencha CLIENT_ID no index.html e no Apps Script antes de usar de verdade. Veja SETUP.md.</div>'}
-    <p style="text-align:center;color:var(--steel);font-size:12px">versão 14</p>
+    <p style="text-align:center;color:var(--steel);font-size:12px">versão 15</p>
   </div>`;
   pintarBlocoFotos();
 }

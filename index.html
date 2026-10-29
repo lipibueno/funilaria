@@ -349,6 +349,17 @@ main{ position:relative; z-index:1 }
 // Client ID é público por natureza — pode ficar no GitHub. A URL da API, não.
 const CLIENT_ID = '415802568647-spdi71hljj8a8778n5a811ukb7hco3ns.apps.googleusercontent.com';
 
+// Versão do Codigo.gs que este app precisa. Tem que bater com ESTRUTURA_V lá.
+// É o que permite dizer "a API está na 7 e o app precisa da 8" em vez de
+// deixar a pessoa adivinhar por que nada funciona.
+const SERVIDOR_ESPERADO = '8';
+
+// "Acao desconhecida" vem do servidor quando o Codigo.gs publicado é mais antigo
+// que o app. A mensagem crua não ajuda ninguém; esta diz o que fazer.
+const AVISO_SERVIDOR_ANTIGO =
+  'O Apps Script está com uma versão antiga do Codigo.gs. Cole o arquivo novo, rode ' +
+  '"autorizar" e publique Nova versão (Implantar › Gerenciar implantações › lápis).';
+
 const STATUS = ['Orcamento','Aprovado','Em execucao','Pronto p/ entrega','Aguardando pagamento','Finalizado'];
 const ROTULO = {
   'Orcamento':'Orçamento','Aprovado':'Aprovado','Em execucao':'Em execução',
@@ -903,7 +914,7 @@ async function entrarPorSenha(){
     usuario = r.usuario;
     await entrar();
   }catch(e){
-    aviso(e.message, true);
+    aviso(e.codigo === 'ACAO' ? AVISO_SERVIDOR_ANTIGO : e.message, true);
     const s = $('#lgSenha'); if (s){ s.value=''; s.focus(); }
   }finally{ if (bt) bt.disabled = false; }
 }
@@ -1138,6 +1149,7 @@ function perderSessao(motivo){
 
 // Trata de forma única os erros que exigem uma reação e não só um aviso.
 async function tratar(e){
+  if (e.codigo === 'ACAO'){ aviso(AVISO_SERVIDOR_ANTIGO, true); return true; }
   if (e.codigo === 'NAO_AUTORIZADO'){ perderSessao(e.message); return true; }
   if (e.codigo === 'CONFLITO'){
     aviso(e.message, true);
@@ -2714,7 +2726,7 @@ function telaAjustes(){
     </div>
     <div class="aviso" style="margin-top:14px">Clientes, orçamentos e pagamentos ficam na planilha. As <b>fotos novas ficam somente neste aparelho</b> (${fotosLocais.size}) e não são enviadas ao Drive. Use “Salvar no aparelho” em cada foto para criar uma cópia fora do app.</div>
     ${CLIENT_ID?'':'<div class="aviso" style="margin-top:10px;border-color:var(--debt);color:var(--debt)"><b>Sem login configurado.</b> Preencha CLIENT_ID no index.html e no Apps Script antes de usar de verdade. Veja SETUP.md.</div>'}
-    <p style="text-align:center;color:var(--steel);font-size:12px">versão 15</p>
+    <p style="text-align:center;color:var(--steel);font-size:12px">versão 16</p>
   </div>`;
   pintarBlocoFotos();
 }
@@ -2751,7 +2763,7 @@ async function testarConexao(){
   const planilha = d.planilha === 'acessivel';
 
   let h = `<div class="tot-box" style="margin-top:10px">
-    ${linha('Versão publicada', d.versao, String(d.versao)==='7')}
+    ${linha('Versão publicada: ' + d.versao, d.versao, String(d.versao)===SERVIDOR_ESPERADO)}
     ${linha('CLIENT_ID no servidor', '', !!d.clientIdPreenchido)}
     ${linha('Permissão de validar login', '', externa)}
     ${linha('Executando como dono', '', comoDono)}
@@ -2762,7 +2774,10 @@ async function testarConexao(){
     h += `<div class="quitado">✓ Tudo certo. Pode entrar.</div>`;
   } else {
     const oque = [];
-    if (String(d.versao)!=='7') oque.push('A API está rodando uma versão antiga. Cole o <b>Codigo.gs</b> novo e publique <b>Nova versão</b>.');
+    if (String(d.versao)!==SERVIDOR_ESPERADO) oque.push(
+      `A API está na versão <b>${esc(d.versao)}</b> e o app precisa da <b>${SERVIDOR_ESPERADO}</b>. ` +
+      'Cole o <b>Codigo.gs</b> novo no Apps Script, rode <b>autorizar</b> e publique <b>Nova versão</b> ' +
+      '(Implantar › Gerenciar implantações › lápis › Nova versão).');
     if (!d.clientIdPreenchido) oque.push('O <b>CLIENT_ID</b> não foi preenchido no Codigo.gs.');
     if (!externa) oque.push('No editor do Apps Script, rode a função <b>autorizar</b>, aceite as permissões e publique <b>Nova versão</b>.');
     if (!comoDono) oque.push('Na implantação, <b>Executar como</b> precisa ser <b>Eu</b>, não "Usuário que acessa o app".');

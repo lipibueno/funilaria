@@ -838,31 +838,73 @@ function telaLogin(motivo){
 
   tela.innerHTML = `<div class="wrap">
     ${motivo?`<div class="aviso">${esc(motivo)}</div>`:''}
-    <div class="vazio" style="padding:22px 12px;margin-bottom:6px">
-      <div style="font-size:15px;color:var(--ink);font-weight:700;margin-bottom:6px">Orçamentos da oficina</div>
-      Informe o e-mail cadastrado. Enviamos um código de 6 dígitos para ele.
+    <div class="vazio" style="padding:20px 12px;margin-bottom:6px">
+      <div style="font-size:15px;color:var(--ink);font-weight:700">Orçamentos da oficina</div>
     </div>
 
     <label for="lgEmail">Seu e-mail</label>
-    <input id="lgEmail" type="email" inputmode="email" autocomplete="email"
+    <input id="lgEmail" type="email" inputmode="email" autocomplete="username"
            value="${esc(emailLogin || localStorage.getItem('ultimo_email') || '')}" placeholder="voce@exemplo.com">
-    <button class="btn" id="btCodigo" onclick="enviarCodigo()">Receber código por e-mail</button>
+    <label for="lgSenha">Senha</label>
+    <input id="lgSenha" type="password" autocomplete="current-password" placeholder="sua senha">
+    <button class="btn" id="btEntrarSenha" onclick="entrarPorSenha()">Entrar</button>
 
-    <div style="display:flex;align-items:center;gap:10px;margin:22px 0 14px;color:var(--steel);font-size:13px">
-      <i style="flex:1;height:1px;background:var(--line)"></i>ou<i style="flex:1;height:1px;background:var(--line)"></i>
+    <button class="btn ghost" onclick="outrasFormas()" style="margin-top:14px;color:var(--steel)">
+      Esqueci a senha · outras formas de entrar</button>
+
+    <div id="outras" class="hide" style="margin-top:4px">
+      <div style="display:flex;align-items:center;gap:10px;margin:14px 0;color:var(--steel);font-size:13px">
+        <i style="flex:1;height:1px;background:var(--line)"></i>ou<i style="flex:1;height:1px;background:var(--line)"></i>
+      </div>
+      <button class="btn sec" id="btCodigo" onclick="enviarCodigo()">Receber código por e-mail</button>
+      <div id="botaoGoogle" style="display:flex;justify-content:center;margin-top:12px"></div>
+      <div class="aviso" style="margin-top:12px">Esqueceu a senha? Peça ao dono para definir uma nova
+      em <b>Quem pode entrar</b>.</div>
     </div>
-    <div id="botaoGoogle" style="display:flex;justify-content:center"></div>
-    ${CLIENT_ID?'':'<div class="aviso" style="border-color:var(--debt);color:var(--debt)">CLIENT_ID não configurado: o login pelo Google está indisponível.</div>'}
 
     <button class="btn sec" onclick="ir('ajustes')" style="margin-top:26px">Configurar conexão</button>
   </div>`;
 
-  const campo = $('#lgEmail');
-  campo.addEventListener('keydown', e=>{ if (e.key==='Enter') enviarCodigo(); });
+  const entra = e =>{ if (e.key==='Enter') entrarPorSenha(); };
+  $('#lgEmail').addEventListener('keydown', entra);
+  $('#lgSenha').addEventListener('keydown', entra);
+  // o foco é adiado, e até lá a tela pode ter mudado — por exemplo se o login deu certo
+  if ($('#lgEmail').value) setTimeout(()=>{ const s = $('#lgSenha'); if (s) s.focus(); }, 120);
+}
 
-  if (!CLIENT_ID) return;
-  if (!iniciarGIS()){ setTimeout(()=>{ if (!usuario && telaAtual==='login' && etapaLogin==='email') telaLogin(motivo); }, 600); return; }
-  google.accounts.id.renderButton($('#botaoGoogle'), { theme:'filled_black', size:'large', text:'signin_with', shape:'pill', locale:'pt-BR' });
+function outrasFormas(){
+  const box = $('#outras'); if (!box) return;
+  box.classList.toggle('hide');
+  if (box.classList.contains('hide') || !CLIENT_ID) return;
+  if (!iniciarGIS()){ setTimeout(outrasFormas, 600); return; }
+  if (!$('#botaoGoogle').childElementCount){
+    google.accounts.id.renderButton($('#botaoGoogle'),
+      { theme:'filled_black', size:'large', text:'signin_with', shape:'pill', locale:'pt-BR' });
+  }
+}
+
+async function entrarPorSenha(){
+  const email = ($('#lgEmail').value||'').trim().toLowerCase();
+  const senha = $('#lgSenha').value || '';
+  if (!email || email.indexOf('@')<0){ aviso('Informe o e-mail', true); return; }
+  if (!senha){ aviso('Informe a senha', true); $('#lgSenha').focus(); return; }
+  if (!API){ aviso('Configure o endereço da API primeiro', true); ir('ajustes'); return; }
+
+  const bt = $('#btEntrarSenha');
+  if (bt) bt.disabled = true;
+  aviso('Entrando…');
+  try{
+    const r = await semLogin('entrarComSenha', { email, senha, aparelho: navigator.userAgent.slice(0,80) });
+    token = r.token;
+    tokenExp = Date.now() + 365*86400000;
+    localStorage.setItem('sessao', r.token);
+    localStorage.setItem('ultimo_email', email);
+    usuario = r.usuario;
+    await entrar();
+  }catch(e){
+    aviso(e.message, true);
+    const s = $('#lgSenha'); if (s){ s.value=''; s.focus(); }
+  }finally{ if (bt) bt.disabled = false; }
 }
 
 function telaCodigo(motivo){
@@ -2448,6 +2490,11 @@ function telaMais(){
     h += li('Quem pode entrar', 'libera ou bloqueia o acesso de cada pessoa', "ir('usuarios')");
     h += li('Histórico de alterações', 'quem mexeu em quê, e quando', "ir('log')");
   }
+  h += li('Trocar minha senha',
+          usuario && usuario.temSenha === false
+            ? 'você ainda não tem senha — defina uma'
+            : 'entrar sem depender de e-mail nem do Google',
+          "trocarMinhaSenha()");
   h += li('Ajustes', 'conexão com a planilha', "ir('ajustes')");
   if (!jaInstalado()){
     h += `<button class="btn sec" id="btInstalar" style="margin-top:14px" onclick="instalar()">
@@ -2475,6 +2522,11 @@ function telaUsuarios(){
       <option value="funcionario">Funcionário — lança orçamentos e recebe pagamentos</option>
       <option value="dono">Dono — também estorna, cancela e muda valores</option>
     </select>
+    <label for="uSenha">Senha <span style="font-weight:500;text-transform:none">— ao menos 6 caracteres</span></label>
+    <input id="uSenha" type="text" autocomplete="off" placeholder="combine com a pessoa">
+    <p style="margin:5px 0 0;font-size:12px;color:var(--steel)">
+      Fica visível aqui só para você anotar e passar. Depois a pessoa pode trocar em
+      <b>Mais → Trocar minha senha</b>. Para quem esqueceu, basta escrever uma nova e liberar de novo.</p>
     <button class="btn" onclick="liberarUsuario(true)">Liberar acesso</button>
     <button class="btn sec" onclick="liberarUsuario(false)">Bloquear este e-mail</button>
     <button class="btn ghost" onclick="derrubarSessoes()">Desconectar este e-mail de todos os aparelhos</button>
@@ -2488,10 +2540,52 @@ async function liberarUsuario(ativo){
   const email = ($('#uEmail').value||'').trim().toLowerCase();
   if (!email || email.indexOf('@')<0){ aviso('Informe um e-mail válido', true); return; }
   if (!ativo && !(await confirmar('Bloquear acesso', email + ' deixa de conseguir entrar no app.', 'Bloquear', true))) return;
+  const senha = ($('#uSenha').value||'').trim();
   try{
-    await chamar('salvarUsuario', { email, nome: $('#uNome').value||'', papel: $('#uPapel').value, ativo });
-    aviso(ativo ? 'Acesso liberado para '+email : 'Acesso bloqueado');
-    $('#uEmail').value=''; $('#uNome').value='';
+    await chamar('salvarUsuario', {
+      email, nome: $('#uNome').value||'', papel: $('#uPapel').value, ativo,
+      senha: ativo && senha ? senha : undefined
+    });
+    aviso(!ativo ? 'Acesso bloqueado'
+      : senha ? 'Acesso liberado com senha para ' + email
+              : 'Acesso liberado para ' + email + ' (sem senha: ele entra por código no e-mail)');
+    $('#uEmail').value=''; $('#uNome').value=''; $('#uSenha').value='';
+  }catch(e){ await tratar(e); }
+}
+
+// Cada pessoa troca a própria senha, informando a atual.
+async function trocarMinhaSenha(){
+  const r = await folha({
+    titulo: 'Trocar minha senha',
+    texto: usuario && usuario.temSenha === false
+      ? 'Você ainda não tem senha. Defina uma para entrar sem depender de e-mail.'
+      : '',
+    corpo: `${usuario && usuario.temSenha === false ? '' :
+      `<label for="snAtual">Senha atual</label>
+       <input id="snAtual" type="password" autocomplete="current-password">`}
+      <label for="snNova">Nova senha</label>
+      <input id="snNova" type="password" autocomplete="new-password" placeholder="ao menos 6 caracteres">
+      <label for="snNova2">Repita a nova senha</label>
+      <input id="snNova2" type="password" autocomplete="new-password">
+      <div id="snErro" style="color:var(--debt);font-size:13px;margin-top:6px"></div>`,
+    botoes: [
+      { rot:'Salvar', valor: f=>{
+          const nova = f.querySelector('#snNova').value;
+          const nova2 = f.querySelector('#snNova2').value;
+          const erro = m =>{ f.querySelector('#snErro').textContent = m; return undefined; };
+          if (nova.length < 6) return erro('A nova senha precisa ter ao menos 6 caracteres.');
+          if (nova !== nova2) return erro('As duas senhas não são iguais.');
+          const atual = f.querySelector('#snAtual');
+          return { senhaAtual: atual ? atual.value : '', senha: nova };
+        } },
+      { rot:'Cancelar', valor:null, classe:'sec' }
+    ]
+  });
+  if (!r) return;
+  try{
+    await chamar('definirSenha', r);
+    if (usuario) usuario.temSenha = true;
+    aviso('Senha alterada');
   }catch(e){ await tratar(e); }
 }
 
@@ -2619,7 +2713,7 @@ function telaAjustes(){
     </div>
     <div class="aviso" style="margin-top:14px">Clientes, orçamentos e pagamentos ficam na planilha. As <b>fotos novas ficam somente neste aparelho</b> (${fotosLocais.size}) e não são enviadas ao Drive. Use “Salvar no aparelho” em cada foto para criar uma cópia fora do app.</div>
     ${CLIENT_ID?'':'<div class="aviso" style="margin-top:10px;border-color:var(--debt);color:var(--debt)"><b>Sem login configurado.</b> Preencha CLIENT_ID no index.html e no Apps Script antes de usar de verdade. Veja SETUP.md.</div>'}
-    <p style="text-align:center;color:var(--steel);font-size:12px">versão 13</p>
+    <p style="text-align:center;color:var(--steel);font-size:12px">versão 14</p>
   </div>`;
   pintarBlocoFotos();
 }

@@ -188,6 +188,177 @@ t('dono nao consegue tirar o proprio acesso', () => {
     { email: 'dono@oficina.com', papel: 'funcionario' }), 'PERMISSAO');
 });
 
+console.log('\n--- entrar com e-mail e senha ---');
+
+function comSenha(a, email, senha){
+  const r = a.chamar('salvarUsuario', 'dono@oficina.com', { email, senha, papel:'funcionario' });
+  if (!r.ok) throw new Error(r.error);
+  return r.data;
+}
+
+t('dono libera acesso ja com senha, e a pessoa entra', () => {
+  const a = appPronto();
+  comSenha(a, 'cris@oficina.com', 'oficina2026');
+  const r = a.post({ action:'entrarComSenha', email:'cris@oficina.com', senha:'oficina2026' });
+  if (!r.ok) throw new Error(r.error);
+  if (!r.data.token) throw new Error('nao veio sessao');
+  igual(r.data.usuario.email, 'cris@oficina.com');
+});
+
+t('a sessao da senha serve para usar o app', () => {
+  const a = appPronto();
+  comSenha(a, 'cris@oficina.com', 'oficina2026');
+  const tk = a.post({ action:'entrarComSenha', email:'cris@oficina.com', senha:'oficina2026' }).data.token;
+  const r = a.post({ action:'carregar', token: tk });
+  if (!r.ok) throw new Error(r.error);
+  igual(r.data.usuario.email, 'cris@oficina.com');
+});
+
+t('a senha nunca e gravada em texto na planilha', () => {
+  const a = appPronto();
+  comSenha(a, 'cris@oficina.com', 'oficina2026');
+  const linha = a.g.ler('Usuarios').find(x => x.Email === 'cris@oficina.com');
+  const tudo = JSON.stringify(linha);
+  if (tudo.indexOf('oficina2026') >= 0) throw new Error('a senha apareceu na planilha! ' + tudo);
+  if (!linha.SenhaHash || !linha.SenhaSalt) throw new Error('faltou hash ou sal');
+});
+
+t('a senha nao aparece no Log', () => {
+  const a = appPronto();
+  comSenha(a, 'cris@oficina.com', 'oficina2026');
+  a.post({ action:'entrarComSenha', email:'cris@oficina.com', senha:'oficina2026' });
+  const log = JSON.stringify(a.g.ler('Log'));
+  if (log.indexOf('oficina2026') >= 0) throw new Error('a senha vazou para o Log');
+});
+
+t('duas pessoas com a MESMA senha geram hashes diferentes', () => {
+  const a = appPronto();
+  comSenha(a, 'um@oficina.com', 'mesmasenha');
+  comSenha(a, 'dois@oficina.com', 'mesmasenha');
+  const us = a.g.ler('Usuarios');
+  const h1 = us.find(x=>x.Email==='um@oficina.com').SenhaHash;
+  const h2 = us.find(x=>x.Email==='dois@oficina.com').SenhaHash;
+  if (h1 === h2) throw new Error('hashes iguais: o sal nao esta sendo usado');
+});
+
+t('sem o pepper, o hash da planilha nao se reproduz', () => {
+  const a = appPronto();
+  comSenha(a, 'cris@oficina.com', 'oficina2026');
+  const linha = a.g.ler('Usuarios').find(x => x.Email === 'cris@oficina.com');
+  // alguem que leu a planilha tem hash e sal, mas nao tem o pepper
+  const semPepper = (()=>{
+    const crypto = require('crypto');
+    let h = linha.SenhaSalt + '|' + '' + '|' + 'oficina2026';
+    for (let i=0;i<400;i++) h = crypto.createHash('sha256').update(h).digest('base64url');
+    return h;
+  })();
+  if (semPepper === String(linha.SenhaHash)) throw new Error('o pepper nao esta entrando no hash');
+});
+
+t('senha errada nao entra, e a mensagem nao entrega se o e-mail existe', () => {
+  const a = appPronto();
+  comSenha(a, 'cris@oficina.com', 'oficina2026');
+  const r1 = recusa(() => a.post({ action:'entrarComSenha', email:'cris@oficina.com', senha:'errada' }), 'SENHA');
+  const r2 = recusa(() => a.post({ action:'entrarComSenha', email:'naoexiste@x.com', senha:'errada' }), 'SENHA');
+  igual(r1.error, r2.error, 'as duas mensagens tem que ser iguais:');
+});
+
+t('5 erros bloqueiam por 15 minutos, e nem a senha certa passa', () => {
+  const a = appPronto();
+  comSenha(a, 'cris@oficina.com', 'oficina2026');
+  for (let i=0;i<5;i++) a.post({ action:'entrarComSenha', email:'cris@oficina.com', senha:'errada' });
+  const r = recusa(() => a.post({ action:'entrarComSenha', email:'cris@oficina.com', senha:'oficina2026' }), 'SENHA');
+  if (!/Espere/.test(r.error)) throw new Error('devia dizer para esperar: ' + r.error);
+});
+
+t('acertar a senha zera o contador de erros', () => {
+  const a = appPronto();
+  comSenha(a, 'cris@oficina.com', 'oficina2026');
+  for (let i=0;i<3;i++) a.post({ action:'entrarComSenha', email:'cris@oficina.com', senha:'errada' });
+  a.post({ action:'entrarComSenha', email:'cris@oficina.com', senha:'oficina2026' });
+  igual(a.g.ler('Usuarios').find(x=>x.Email==='cris@oficina.com').ErrosSeguidos, 0);
+});
+
+t('quem esta na lista mas sem senha definida nao entra por senha', () => {
+  const a = appPronto();
+  const r = recusa(() => a.post({ action:'entrarComSenha', email:'func@oficina.com', senha:'qualquer' }), 'SENHA');
+  igual(r.error, 'E-mail ou senha nao conferem');
+});
+
+t('acesso desativado nao entra por senha', () => {
+  const a = appPronto();
+  comSenha(a, 'cris@oficina.com', 'oficina2026');
+  a.chamar('salvarUsuario', 'dono@oficina.com', { email:'cris@oficina.com', ativo:false });
+  recusa(() => a.post({ action:'entrarComSenha', email:'cris@oficina.com', senha:'oficina2026' }), 'SENHA');
+});
+
+t('senha curta ou obvia e recusada', () => {
+  const a = appPronto();
+  recusa(() => a.chamar('salvarUsuario', 'dono@oficina.com', { email:'x@oficina.com', senha:'123' }), 'SENHA');
+  recusa(() => a.chamar('salvarUsuario', 'dono@oficina.com', { email:'x@oficina.com', senha:'123456' }), 'SENHA');
+});
+
+t('editar nome ou papel nao apaga a senha', () => {
+  const a = appPronto();
+  comSenha(a, 'cris@oficina.com', 'oficina2026');
+  a.chamar('salvarUsuario', 'dono@oficina.com', { email:'cris@oficina.com', nome:'Cristiano', papel:'dono' });
+  const r = a.post({ action:'entrarComSenha', email:'cris@oficina.com', senha:'oficina2026' });
+  if (!r.ok) throw new Error('a senha se perdeu ao editar: ' + r.error);
+  igual(r.data.usuario.papel, 'dono');
+});
+
+t('a pessoa troca a propria senha, informando a atual', () => {
+  const a = appPronto();
+  comSenha(a, 'cris@oficina.com', 'oficina2026');
+  const tk = a.post({ action:'entrarComSenha', email:'cris@oficina.com', senha:'oficina2026' }).data.token;
+  recusa(() => a.post({ action:'definirSenha', token:tk, senhaAtual:'chutada', senha:'novasenha1' }), 'SENHA');
+  const r = a.post({ action:'definirSenha', token:tk, senhaAtual:'oficina2026', senha:'novasenha1' });
+  if (!r.ok) throw new Error(r.error);
+  if (!a.post({ action:'entrarComSenha', email:'cris@oficina.com', senha:'novasenha1' }).ok) {
+    throw new Error('a senha nova nao funcionou');
+  }
+  recusa(() => a.post({ action:'entrarComSenha', email:'cris@oficina.com', senha:'oficina2026' }), 'SENHA');
+});
+
+t('funcionario nao define a senha de outra pessoa', () => {
+  const a = appPronto();
+  comSenha(a, 'cris@oficina.com', 'oficina2026');
+  const tk = a.post({ action:'entrarComSenha', email:'cris@oficina.com', senha:'oficina2026' }).data.token;
+  recusa(() => a.post({ action:'definirSenha', token:tk, email:'dono@oficina.com', senha:'invadida1' }), 'PERMISSAO');
+});
+
+t('dono redefine a senha de quem esqueceu, sem saber a antiga', () => {
+  const a = appPronto();
+  comSenha(a, 'cris@oficina.com', 'oficina2026');
+  const r = a.chamar('definirSenha', 'dono@oficina.com', { email:'cris@oficina.com', senha:'resetada9' });
+  if (!r.ok) throw new Error(r.error);
+  if (!a.post({ action:'entrarComSenha', email:'cris@oficina.com', senha:'resetada9' }).ok) {
+    throw new Error('a redefinicao nao valeu');
+  }
+});
+
+t('redefinir a senha desbloqueia quem estava travado', () => {
+  const a = appPronto();
+  comSenha(a, 'cris@oficina.com', 'oficina2026');
+  for (let i=0;i<5;i++) a.post({ action:'entrarComSenha', email:'cris@oficina.com', senha:'errada' });
+  a.chamar('definirSenha', 'dono@oficina.com', { email:'cris@oficina.com', senha:'resetada9' });
+  const r = a.post({ action:'entrarComSenha', email:'cris@oficina.com', senha:'resetada9' });
+  if (!r.ok) throw new Error('devia ter desbloqueado: ' + r.error);
+});
+
+t('os tres jeitos de entrar convivem', () => {
+  const a = appPronto();
+  comSenha(a, 'cris@oficina.com', 'oficina2026');
+  // senha
+  if (!a.post({ action:'entrarComSenha', email:'cris@oficina.com', senha:'oficina2026' }).ok) throw new Error('senha falhou');
+  // codigo por e-mail
+  a.post({ action:'pedirCodigo', email:'cris@oficina.com' });
+  const cod = (a.g.__emails[a.g.__emails.length-1].subject.match(/(\d{6})/)||[])[1];
+  if (!a.post({ action:'entrarComCodigo', email:'cris@oficina.com', codigo:cod }).ok) throw new Error('codigo falhou');
+  // google
+  if (!a.chamar('carregar', 'dono@oficina.com').ok) throw new Error('google falhou');
+});
+
 console.log('\n--- entrar com codigo por e-mail ---');
 
 // Le o codigo do e-mail que o simulador "enviou".

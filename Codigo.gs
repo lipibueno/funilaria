@@ -21,10 +21,10 @@ var MESES_PADRAO = 12;           // quanto historico o app baixa por padrao
 
 /* ===================== estrutura da planilha ===================== */
 
-var ESTRUTURA_V = '7';
+var ESTRUTURA_V = '8';
 var ESTRUTURA = {
   Config:     ['Chave','Valor'],
-  Usuarios:   ['Email','Nome','Papel','Ativo'],
+  Usuarios:   ['Email','Nome','Papel','Ativo','SenhaHash','SenhaSalt','SenhaEm','ErrosSeguidos','BloqueadoAteMs'],
   Clientes:   ['ID','Nome','Telefone','Obs'],
   Servicos:   ['ID','Descricao','Categoria','ValorPadrao','Ativo'],
   Orcamentos: ['ID','Numero','Data','ClienteID','ClienteNome','Telefone','Placa','Modelo','Ano','Cor',
@@ -332,6 +332,8 @@ function doPost(e) {
 }
 
 var ACOES = {
+  entrarComSenha:     { fn: entrarComSenha,     papeis: [],                      escreve: true,  semLogin: true },
+  definirSenha:       { fn: definirSenha,       papeis: ['dono', 'funcionario'], escreve: true },
   pedirCodigo:        { fn: pedirCodigo,        papeis: [],                      escreve: false, semLogin: true },
   entrarComCodigo:    { fn: entrarComCodigo,    papeis: [],                      escreve: true,  semLogin: true },
   sair:               { fn: sair,               papeis: ['dono', 'funcionario'], escreve: true },
@@ -408,6 +410,144 @@ function emailDoToken(token) {
   var email = String(d.email).toLowerCase();
   cache.put(chave, email, Math.min(300, faltaSeg));
   return email;
+}
+
+/* ---------- entrar com e-mail e senha ----------
+   Nao depende de nada externo: nem do login do Google, nem de envio de e-mail.
+
+   Sobre a protecao da senha, com franqueza: o Apps Script nao oferece bcrypt nem
+   argon2, que sao o padrao. O que da para fazer, e esta feito aqui:
+
+   - cada senha tem um SAL proprio, entao duas pessoas com a mesma senha geram
+     hashes diferentes e nao da para usar tabela pronta;
+   - existe um PEPPER guardado nas Propriedades do Script, FORA da planilha. Quem
+     abrir a aba Usuarios ve os hashes, mas sem o pepper nao consegue testar
+     senhas por conta propria. E a mitigacao mais importante aqui, porque o risco
+     real e alguem com acesso a planilha;
+   - o hash passa por varias voltas de SHA-256, encarecendo cada tentativa;
+   - 5 erros seguidos bloqueiam a conta por 15 minutos.
+
+   A senha em si nunca e gravada em lugar nenhum, nem aparece no Log. */
+
+var SENHA_MIN = 6;
+var SENHA_VOLTAS = 400;
+var SENHA_ERROS = 5;
+var SENHA_BLOQUEIO_MIN = 15;
+
+// Segredo do servidor. Nasce sozinho na primeira vez e nunca sai das Propriedades.
+function _pepper() {
+  var props = PropertiesService.getScriptProperties();
+  var p = props.getProperty('pepper');
+  if (!p) {
+    p = Utilities.getUuid() + Utilities.getUuid();
+    props.setProperty('pepper', p);
+  }
+  return p;
+}
+
+function _hashSenha(senha, sal) {
+  var h = sal + '|' + _pepper() + '|' + senha;
+  for (var i = 0; i < SENHA_VOLTAS; i++) h = _hash(h);
+  return h;
+}
+
+function _conferirForca(senha) {
+  var s = String(senha || '');
+  if (s.length < SENHA_MIN) throw erro('SENHA', 'A senha precisa ter ao menos ' + SENHA_MIN + ' caracteres');
+  var obvias = ['123456', '1234567', '12345678', 'senha', 'password', 'abcdef', '000000', '111111'];
+  if (obvias.indexOf(s.toLowerCase()) >= 0) throw erro('SENHA', 'Essa senha e facil demais de adivinhar. Escolha outra.');
+  return s;
+}
+
+// Grava a senha de alguem. So o dono define a de outra pessoa; cada um troca a sua.
+function definirSenha(req, u) {
+  var alvo = String(req.email || u.Email).trim().toLowerCase();
+  var proprio = alvo === u.Email;
+  if (!proprio) exigirDono(u, 'So o dono pode definir a senha de outra pessoa');
+
+  var alvoU = usuarioPor(alvo);
+  if (!alvoU) throw erro('NAO_ENCONTRADO', 'Esse e-mail nao esta na lista de quem pode entrar');
+
+  // trocar a propria senha exige saber a atual, se ja houver uma
+  if (proprio && alvoU.SenhaHash) {
+    if (_hashSenha(String(req.senhaAtual || ''), alvoU.SenhaSalt) !== String(alvoU.SenhaHash)) {
+      throw erro('SENHA', 'A senha atual nao confere');
+    }
+  }
+
+  var nova = _conferirForca(req.senha);
+  var sal = Utilities.getUuid();
+  alvoU.SenhaSalt = sal;
+  alvoU.SenhaHash = _hashSenha(nova, sal);
+  alvoU.SenhaEm = new Date().toISOString();
+  alvoU.ErrosSeguidos = 0;
+  alvoU.BloqueadoAteMs = 0;
+  gravar('Usuarios', alvoU, 'Email');
+
+  // a senha nunca entra no Log, so o fato de ter mudado
+  registrar(u.Email, proprio ? 'senha_trocada' : 'senha_definida', 'Usuarios', alvo, '', '', req.motivo || '');
+  return { email: alvo, definida: true };
+}
+
+function entrarComSenha(req) {
+  var email = String(req.email || '').trim().toLowerCase();
+  var senha = String(req.senha || '');
+  if (!email || !senha) throw erro('DADO', 'Informe o e-mail e a senha');
+
+  var u = usuarioPor(email);
+  var agora = Date.now();
+
+  // Resposta igual para e-mail inexistente e senha errada: de fora nao da para
+  // descobrir quais e-mails tem acesso a oficina.
+  var generico = 'E-mail ou senha nao conferem';
+
+  if (!u || String(u.Ativo) === 'false' || !u.SenhaHash) {
+    registrar(email, 'senha_negada', 'Sessoes', email, '',
+              !u ? 'e-mail sem acesso' : (!u.SenhaHash ? 'sem senha definida' : 'acesso desativado'), '');
+    throw erro('SENHA', generico);
+  }
+
+  if (_num(u.BloqueadoAteMs) > agora) {
+    var faltam = Math.ceil((_num(u.BloqueadoAteMs) - agora) / 60000);
+    throw erro('SENHA', 'Muitas tentativas erradas. Espere ' + faltam + ' minuto(s).');
+  }
+
+  if (_hashSenha(senha, u.SenhaSalt) !== String(u.SenhaHash)) {
+    var erros = _num(u.ErrosSeguidos) + 1;
+    u.ErrosSeguidos = erros;
+    if (erros >= SENHA_ERROS) {
+      u.BloqueadoAteMs = agora + SENHA_BLOQUEIO_MIN * 60000;
+      u.ErrosSeguidos = 0;
+    }
+    gravar('Usuarios', u, 'Email');
+    registrar(email, 'senha_errada', 'Sessoes', email, '', 'tentativa ' + erros, '');
+    throw erro('SENHA', erros >= SENHA_ERROS
+      ? 'Muitas tentativas erradas. Espere ' + SENHA_BLOQUEIO_MIN + ' minutos.'
+      : generico);
+  }
+
+  u.ErrosSeguidos = 0;
+  u.BloqueadoAteMs = 0;
+  gravar('Usuarios', u, 'Email');
+
+  return _abrirSessao(email, u, req.aparelho, 'senha');
+}
+
+// Cria a sessao que mantem a pessoa logada ate pedir para sair.
+function _abrirSessao(email, u, aparelho, como) {
+  var token = Utilities.getUuid().replace(/-/g, '') + Utilities.getUuid().replace(/-/g, '');
+  limparSessoesVelhas();
+  gravar('Sessoes', {
+    TokenHash: _hash(token), Email: email, CriadaEm: new Date().toISOString(),
+    ExpiraEmMs: Date.now() + SESSAO_DIAS * 86400000,
+    Aparelho: String(aparelho || '').slice(0, 80), UltimoUsoMs: Date.now()
+  }, 'TokenHash');
+  registrar(email, 'entrou', 'Sessoes', '', '', como, '');
+  return {
+    token: token,
+    usuario: { email: email, nome: u.Nome, temSenha: !!u.SenhaHash,
+               papel: String(u.Papel).toLowerCase() === 'dono' ? 'dono' : 'funcionario' }
+  };
 }
 
 /* ---------- entrar com codigo de 6 digitos por e-mail ---------- */
@@ -510,19 +650,7 @@ function entrarComCodigo(req) {
   var u = usuarioPor(email);
   if (!u || String(u.Ativo) === 'false') throw erro('NAO_AUTORIZADO', 'Este e-mail nao tem acesso.');
 
-  var token = Utilities.getUuid().replace(/-/g, '') + Utilities.getUuid().replace(/-/g, '');
-  limparSessoesVelhas();
-  gravar('Sessoes', {
-    TokenHash: _hash(token), Email: email, CriadaEm: new Date().toISOString(),
-    ExpiraEmMs: Date.now() + SESSAO_DIAS * 86400000,
-    Aparelho: String(req.aparelho || '').slice(0, 80), UltimoUsoMs: Date.now()
-  }, 'TokenHash');
-  registrar(email, 'entrou', 'Sessoes', '', '', 'codigo por e-mail', '');
-
-  return {
-    token: token,
-    usuario: { email: email, nome: u.Nome, papel: String(u.Papel).toLowerCase() === 'dono' ? 'dono' : 'funcionario' }
-  };
+  return _abrirSessao(email, u, req.aparelho, 'codigo por e-mail');
 }
 
 // Quem e o dono desta sessao. Tambem renova o "ultimo uso".
@@ -650,11 +778,30 @@ function salvarUsuario(req, u) {
   if (alvo === u.Email && (papel !== 'dono' || !ativo)) {
     throw erro('PERMISSAO', 'Voce nao pode remover o proprio acesso de dono');
   }
-  var linha = { Email: alvo, Nome: req.nome || (antes ? antes.Nome : ''), Papel: papel, Ativo: ativo };
+  var linha = {
+    Email: alvo, Nome: req.nome || (antes ? antes.Nome : ''), Papel: papel, Ativo: ativo,
+    // a senha que ja existia nao se perde ao editar nome ou papel
+    SenhaHash: antes ? antes.SenhaHash : '',
+    SenhaSalt: antes ? antes.SenhaSalt : '',
+    SenhaEm: antes ? antes.SenhaEm : '',
+    ErrosSeguidos: 0, BloqueadoAteMs: 0
+  };
+
+  // senha inicial opcional, para liberar o acesso ja pronto para usar
+  if (req.senha) {
+    var nova = _conferirForca(req.senha);
+    var sal = Utilities.getUuid();
+    linha.SenhaSalt = sal;
+    linha.SenhaHash = _hashSenha(nova, sal);
+    linha.SenhaEm = new Date().toISOString();
+  }
+
   gravar('Usuarios', linha, 'Email');
   registrar(u.Email, antes ? 'usuario_alterado' : 'usuario_criado', 'Usuarios', alvo,
-            antes ? antes.Papel + '/' + antes.Ativo : '', papel + '/' + ativo, req.motivo || '');
-  return linha;
+            antes ? antes.Papel + '/' + antes.Ativo : '',
+            papel + '/' + ativo + (req.senha ? ' com senha' : ''), req.motivo || '');
+  return { Email: linha.Email, Nome: linha.Nome, Papel: linha.Papel, Ativo: linha.Ativo,
+           temSenha: !!linha.SenhaHash };
 }
 
 /* ===================== leitura ===================== */
@@ -676,7 +823,8 @@ function carregar(req, u) {
   var meus = function (r) { return ids[String(r.OrcamentoID)] === 1; };
 
   return {
-    usuario: { email: u.Email, nome: u.Nome, papel: u.Papel },
+    // so o necessario: hash e sal da senha nunca saem do servidor
+    usuario: { email: u.Email, nome: u.Nome, papel: u.Papel, temSenha: !!u.SenhaHash },
     config: lerConfig(),
     clientes: ler('Clientes'),
     servicos: ler('Servicos'),
